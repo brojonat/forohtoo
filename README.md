@@ -2,27 +2,44 @@
 
 A Go-based service and client library for polling Solana wallets and integrating payment verification into Temporal workflows. This system decouples Solana RPC polling from client applications, enabling efficient payment tracking across multiple services without rate limit concerns.
 
+## ⚠️ Future Work Note
+
+The current `await` endpoint implementation uses vanilla HTTP long-polling for blocking payment verification. While this works well for direct worker-to-server connections, we plan to migrate to an **SSE-based approach** for improved robustness through proxies and load balancers. The SSE version would provide automatic reconnection and better handling of long-lived connections in production environments. The current HTTP implementation is functional and suitable for most use cases, especially with direct connections.
+
 ## Architecture
 
 ```
-┌──────────────────────────────────────────┐
-│  BACKEND SERVICE                          │
-│  - NATS Request/Reply: wallet mgmt       │
-│  - Temporal Schedule: poll wallets       │
-│  - NATS Publish: txn updates             │
-│  - TimescaleDB: persistent storage       │
-└──────────────────────────────────────────┘
-         │
-         │ NATS + JetStream
-         ▼
-┌─────────────────────────────────────────┐
-│  CLIENT LIBRARY (Go)                     │
-│  - Request/Reply: manage wallets         │
-│  - JetStream Subscribe: txn updates      │
-│  - Parse memos locally                   │
-│  - Unblock Temporal workflows            │
-└──────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│  BACKEND SERVICE                                        │
+│                                                         │
+│  ┌─────────────┐    NATS      ┌──────────────┐        │
+│  │   Worker    │───────────────▶│ HTTP Server │        │
+│  │             │  (internal)    │             │        │
+│  │ - Poll RPC  │                │ - REST API  │        │
+│  │ - Write DB  │                │ - SSE       │        │
+│  │ - Pub NATS  │                │             │        │
+│  └─────────────┘                └──────────────┘        │
+│         │                              │                │
+│         │                              │                │
+│    TimescaleDB                         │                │
+│   (persistence)                        │                │
+└────────────────────────────────────────┼────────────────┘
+                                         │
+                                         │ HTTP/SSE
+                                         ▼
+                              ┌─────────────────────┐
+                              │  WEB CLIENTS        │
+                              │  - REST API         │
+                              │  - SSE Streams      │
+                              │  - Browser/Mobile   │
+                              └─────────────────────┘
 ```
+
+**Key Design Decisions:**
+- **NATS is internal**: Not exposed to clients, simplifying security
+- **SSE for streaming**: Clients use Server-Sent Events over HTTP
+- **HTTP-only clients**: No need for NATS client libraries
+- **CLI for ops**: Direct NATS access for debugging/monitoring
 
 ## Key Components
 
@@ -143,7 +160,417 @@ The `workflow_id` field is used by clients to match payments to Temporal workflo
 
 ## Getting Started
 
-(Coming soon: installation and quick start guide)
+### Running Locally
+
+Start all required services:
+
+```bash
+# Start Postgres, NATS, and Temporal
+make docker-up
+
+# Wait for services to be ready (Temporal takes ~60 seconds)
+sleep 60
+
+# Run database migrations
+make db-migrate-up
+
+# Set required environment variables (or copy .env.example to .env)
+export DATABASE_URL="postgres://postgres:postgres@localhost:5432/forohtoo?sslmode=disable"
+export SOLANA_RPC_URL="https://api.mainnet-beta.solana.com"
+```
+
+The system consists of **two separate processes** that run independently:
+
+#### 1. HTTP Server (API)
+
+Handles wallet management via REST API:
+
+```bash
+make run-server
+# or
+./bin/server
+```
+
+Listens on `:8080` by default. Provides endpoints for:
+
+**Wallet Management:**
+- `POST /api/v1/wallets` - Register a wallet for polling
+- `GET /api/v1/wallets` - List all registered wallets
+- `GET /api/v1/wallets/{address}` - Get wallet details
+- `DELETE /api/v1/wallets/{address}` - Unregister a wallet
+
+**Transaction Streaming (SSE):**
+- `GET /api/v1/stream/transactions/{address}` - Stream transactions for a specific wallet
+- `GET /api/v1/stream/transactions` - Stream transactions for all wallets
+
+The SSE endpoints provide real-time transaction streams over HTTP. See `examples/sse-client.html` for a browser-based demo.
+
+#### 2. Temporal Worker
+
+Processes scheduled wallet polling workflows:
+
+```bash
+make run-worker
+# or
+./bin/worker
+```
+
+The worker executes `PollWalletWorkflow` on schedule, which:
+- Polls Solana RPC for new transactions
+- Writes transactions to TimescaleDB
+- Updates wallet poll time
+
+#### Running Both Together
+
+For local development, you can use tmux or separate terminal windows:
+
+```bash
+# Terminal 1
+make run-server
+
+# Terminal 2
+make run-worker
+```
+
+For production, deploy as separate Kubernetes deployments to scale independently:
+- Scale API servers based on request load
+- Scale workers based on number of wallets being polled
+
+Logs are output as structured JSON to stderr.
+
+### Kubernetes Deployment
+
+The service uses Kustomize for Kubernetes deployments with separate server and worker manifests.
+
+#### Prerequisites
+
+1. **Docker Registry**: Push images to your registry
+2. **Environment Files**: Create production environment files from examples:
+   ```bash
+   cp .env.server.example .env.server.prod
+   cp .env.worker.example .env.worker.prod
+   # Edit files with production values
+   ```
+3. **Image Pull Secret**: Create `regcred` secret for private registries:
+   ```bash
+   kubectl create secret docker-registry regcred \
+     --docker-server=your-registry.com \
+     --docker-username=your-username \
+     --docker-password=your-password
+   ```
+
+#### Deployment Process
+
+**Option 1: Full Deployment (Build + Push + Apply)**
+
+```bash
+# Set variables
+export DOCKER_REPO="your-registry.com/your-org"
+export GIT_COMMIT_SHA=$(git rev-parse --short HEAD)
+
+# Build, push, and deploy
+make deploy
+```
+
+**Option 2: Using Kustomize (Recommended for Production)**
+
+```bash
+# Build and push image
+export DOCKER_REPO="your-registry.com/your-org"
+export GIT_COMMIT_SHA=$(git rev-parse --short HEAD)
+make docker-build-tag docker-push
+
+# Update k8s manifests with new image tags
+sed -i "s|{{DOCKER_REPO}}|${DOCKER_REPO}|g" k8s/prod/*.yaml
+sed -i "s|{{GIT_COMMIT_SHA}}|${GIT_COMMIT_SHA}|g" k8s/prod/*.yaml
+
+# Apply with kustomize (loads secrets from .env files)
+make k8s-apply-kustomize
+```
+
+**Option 3: Direct kubectl Apply**
+
+```bash
+export DOCKER_REPO="your-registry.com/your-org"
+export GIT_COMMIT_SHA=$(git rev-parse --short HEAD)
+make k8s-apply
+```
+
+#### Monitoring and Management
+
+```bash
+# Check deployment status
+make k8s-status
+
+# View logs
+make k8s-logs-server
+make k8s-logs-worker
+
+# Restart deployments
+make k8s-restart-server
+make k8s-restart-worker
+
+# Delete all resources
+make k8s-delete
+```
+
+#### Architecture
+
+The deployment consists of:
+
+- **Server Deployment** (`forohtoo-server`):
+  - 1 replica (scale up based on API load)
+  - Exposes ClusterIP service on port 80 → 8080
+  - Health checks on `/health` endpoint
+  - Resources: 128Mi-512Mi RAM, 100m-500m CPU
+
+- **Worker Deployment** (`forohtoo-worker`):
+  - 1 replica (scale up based on wallet count)
+  - No exposed service (processes Temporal tasks)
+  - Resources: 256Mi-1Gi RAM, 200m-1000m CPU
+
+Both deployments use:
+- **Same Docker image** with different commands (`/server` vs `/worker`)
+- **Separate secrets** from `.env.server.prod` and `.env.worker.prod`
+- **Image pull secret** (`regcred`) for private registries
+
+**Scaling Strategies:**
+- **API Server**: Scale based on HTTP request rate, CPU, or memory
+- **Worker**: Scale based on number of active wallets or Temporal task queue depth
+- Temporal handles task distribution across multiple worker instances automatically
+
+### Transaction Streaming
+
+#### Browser/Web Clients (SSE)
+
+For production applications, use the HTTP Server-Sent Events endpoints:
+
+```javascript
+// Stream transactions for a specific wallet
+const eventSource = new EventSource('http://localhost:8080/api/v1/stream/transactions/YOUR_WALLET');
+
+eventSource.addEventListener('connected', (e) => {
+  console.log('Connected:', JSON.parse(e.data));
+});
+
+eventSource.addEventListener('transaction', (e) => {
+  const txn = JSON.parse(e.data);
+  console.log('Transaction:', txn);
+  // Handle transaction event
+});
+
+// Stream all wallet transactions
+const allSource = new EventSource('http://localhost:8080/api/v1/stream/transactions');
+```
+
+See `examples/sse-client.html` for a complete browser-based demo.
+
+**Benefits of SSE:**
+- Standard browser API (EventSource)
+- Works with standard HTTP infrastructure
+- Automatic reconnection
+- No NATS client library needed
+- Simple authentication (HTTP headers/cookies)
+
+#### CLI Tool (SSE)
+
+For debugging and testing without a browser, use the CLI to stream SSE to stdout:
+
+```bash
+# Stream transactions for a specific wallet (human-friendly output)
+forohtoo sse stream YOUR_WALLET_ADDRESS
+
+# Stream all wallets
+forohtoo sse stream
+
+# JSON output (one transaction per line)
+forohtoo sse stream YOUR_WALLET_ADDRESS --json
+
+# Use custom server URL
+forohtoo sse stream YOUR_WALLET_ADDRESS --server http://production-server:8080
+```
+
+**Benefits:**
+- No browser required for debugging
+- Same SSE endpoints as browser clients
+- Human-friendly or JSON output
+- Easy integration with scripts and automation
+
+### Blocking Payment Verification (Await)
+
+The **await endpoint** is the core feature for payment gating in Temporal workflows. It blocks an HTTP request until a transaction matching specific criteria arrives, enabling workflows to pause until payment is confirmed.
+
+**Endpoint:** `GET /api/v1/wallets/{address}/await`
+
+**Query Parameters:**
+- `workflow_id` - Filter by workflow_id in transaction memo (JSON parsed)
+- `signature` - Filter by exact transaction signature
+- `timeout` - Optional timeout duration (default: 5m, max: 10m)
+
+**Example HTTP Request:**
+```bash
+curl "http://localhost:8080/api/v1/wallets/YOUR_WALLET/await?workflow_id=payment-workflow-123&timeout=5m"
+```
+
+**Go Client Library:**
+```go
+import "github.com/brojonat/forohtoo/client"
+
+// Create client
+cl := client.NewClient("http://localhost:8080", nil, logger)
+
+// Block until transaction with workflow_id arrives
+workflowID := "payment-workflow-123"
+txn, err := cl.Await(ctx, walletAddress, client.AwaitOptions{
+    WorkflowID: &workflowID,
+    Timeout: 5 * time.Minute,
+})
+if err != nil {
+    return fmt.Errorf("payment not received: %w", err)
+}
+
+// Payment confirmed! Continue workflow
+log.Printf("Payment received: %s (%.4f SOL)", txn.Signature, float64(txn.Amount)/1e9)
+```
+
+**CLI Tool:**
+```bash
+# Block until transaction with workflow_id arrives
+forohtoo client await YOUR_WALLET --workflow-id payment-workflow-123
+
+# Block until specific signature arrives
+forohtoo client await YOUR_WALLET --signature SIG_HERE
+
+# JSON output for automation
+forohtoo client await YOUR_WALLET --workflow-id xyz --json
+
+# Custom timeout
+forohtoo client await YOUR_WALLET --workflow-id xyz --timeout 10m
+```
+
+**Use Case - Temporal Workflow:**
+
+```go
+// Workflow activity that waits for payment
+func WaitForPaymentActivity(ctx context.Context, walletAddr string, workflowID string) (*client.Transaction, error) {
+    cl := client.NewClient(serverURL, nil, logger)
+
+    opts := client.AwaitOptions{
+        WorkflowID: &workflowID,
+        Timeout: 10 * time.Minute,
+    }
+
+    // This blocks until payment arrives or timeout
+    return cl.Await(ctx, walletAddr, opts)
+}
+
+// Workflow
+func PaymentGatedWorkflow(ctx workflow.Context, order Order) error {
+    // Generate unique workflow ID for this payment
+    workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
+
+    // Display payment instructions to user
+    // Memo should include: {"workflow_id": "payment-workflow-abc123"}
+
+    // Block workflow until payment received (with timeout)
+    activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+        StartToCloseTimeout: 15 * time.Minute,
+    })
+
+    var txn *client.Transaction
+    err := workflow.ExecuteActivity(activityCtx, WaitForPaymentActivity,
+        order.WalletAddress, workflowID).Get(ctx, &txn)
+    if err != nil {
+        return fmt.Errorf("payment timeout or failed: %w", err)
+    }
+
+    // Payment confirmed! Continue with order fulfillment
+    return processOrder(ctx, order, txn)
+}
+```
+
+**Benefits:**
+- **Simple Integration**: Just HTTP - no NATS client required
+- **Workflow-native**: Blocks like any other activity in Temporal
+- **Automatic Filtering**: Server filters transactions, client only receives matches
+- **Timeout Handling**: Built-in timeout prevents infinite blocking
+- **Idempotent**: Safe to retry - will return same transaction if called again
+
+**Security Considerations:**
+- Consider adding authentication (JWT, API keys)
+- Validate workflow_id format to prevent injection
+- Use HTTPS in production
+- Monitor for abuse (many simultaneous await requests)
+
+#### CLI Tool (NATS Direct)
+
+For debugging and operations, the CLI connects directly to NATS:
+
+```bash
+# Subscribe to a specific wallet
+forohtoo nats subscribe DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK
+
+# Subscribe with JSON output
+forohtoo nats subscribe DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK --json
+
+# Create a durable consumer (survives restarts)
+forohtoo nats subscribe DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK --durable
+```
+
+#### Smoke Testing
+
+Run an end-to-end smoke test to verify the system is working:
+
+```bash
+# Run smoke test with a known busy wallet (Pump.fun bonding curve)
+forohtoo nats smoke-test
+
+# Use a custom wallet and timeout
+forohtoo nats smoke-test --wallet YOUR_WALLET --timeout 60s
+
+# JSON output for automation
+forohtoo nats smoke-test --json
+```
+
+The smoke test:
+1. Connects to NATS JetStream
+2. Subscribes to transaction events for a busy wallet
+3. Waits for transaction events (default: 30s)
+4. Reports success/failure
+
+This verifies that the entire pipeline is working: Solana → Worker → TimescaleDB → NATS → CLI
+
+#### Other Commands
+
+```bash
+# Inspect JetStream stream status
+forohtoo nats inspect-stream
+
+# Database inspection
+forohtoo db list-wallets
+forohtoo db list-transactions WALLET_ADDRESS
+
+# Temporal schedule management
+forohtoo temporal list-schedules
+forohtoo temporal describe-schedule WALLET_ADDRESS
+
+# Server health check
+forohtoo server health
+```
+
+See `forohtoo --help` for all available commands.
+
+### Running Tests
+
+```bash
+# Run unit tests (no external dependencies)
+make test
+
+# Run integration tests (requires docker services)
+make test-integration
+```
+
+See [TESTING.md](./TESTING.md) for detailed testing instructions.
 
 ## License
 

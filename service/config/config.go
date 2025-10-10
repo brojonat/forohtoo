@@ -24,7 +24,9 @@ type Config struct {
 	SolanaRPCURL string
 
 	// Temporal configuration
-	TemporalHost string
+	TemporalHost      string
+	TemporalNamespace string
+	TemporalTaskQueue string
 
 	// Polling configuration
 	DefaultPollInterval time.Duration
@@ -58,6 +60,8 @@ func Load() (*Config, error) {
 
 	// Temporal configuration
 	cfg.TemporalHost = getEnvOrDefault("TEMPORAL_HOST", "localhost:7233")
+	cfg.TemporalNamespace = getEnvOrDefault("TEMPORAL_NAMESPACE", "default")
+	cfg.TemporalTaskQueue = getEnvOrDefault("TEMPORAL_TASK_QUEUE", "forohtoo-wallet-polling")
 
 	// Polling configuration
 	defaultInterval, err := parseDuration("DEFAULT_POLL_INTERVAL", "30s")
@@ -109,6 +113,18 @@ func (c *Config) Validate() error {
 
 	if c.SolanaRPCURL == "" {
 		errs = append(errs, fmt.Errorf("SolanaRPCURL is required"))
+	}
+
+	if c.TemporalHost == "" {
+		errs = append(errs, fmt.Errorf("TemporalHost is required"))
+	}
+
+	if c.TemporalNamespace == "" {
+		errs = append(errs, fmt.Errorf("TemporalNamespace is required"))
+	}
+
+	if c.TemporalTaskQueue == "" {
+		errs = append(errs, fmt.Errorf("TemporalTaskQueue is required"))
 	}
 
 	if c.MinPollInterval > c.DefaultPollInterval {

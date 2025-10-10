@@ -24,6 +24,9 @@ vendor/
 # Environment files (never commit secrets!)
 .env
 .env.local
+.env.*.prod
+.env.server.prod
+.env.worker.prod
 
 # IDE files
 .vscode/

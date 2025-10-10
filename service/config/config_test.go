@@ -75,7 +75,6 @@ func TestLoad_MinIntervalGreaterThanDefault(t *testing.T) {
 func TestLoad_CustomValues(t *testing.T) {
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
 	os.Setenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
-	os.Setenv("SOLANA_RPC_API_KEY", "secret-key")
 	os.Setenv("SERVER_ADDR", ":9090")
 	os.Setenv("LOG_LEVEL", "debug")
 	os.Setenv("NATS_URL", "nats://nats.example.com:4222")
@@ -92,7 +91,8 @@ func TestLoad_CustomValues(t *testing.T) {
 	assert.Equal(t, "debug", cfg.LogLevel)
 	assert.Equal(t, "nats://nats.example.com:4222", cfg.NATSURL)
 	assert.Equal(t, "temporal.example.com:7233", cfg.TemporalHost)
-	assert.Equal(t, "secret-key", cfg.SolanaRPCAPIKey)
+	assert.Equal(t, "default", cfg.TemporalNamespace)
+	assert.Equal(t, "forohtoo-wallet-polling", cfg.TemporalTaskQueue)
 	assert.Equal(t, time.Minute, cfg.DefaultPollInterval)
 	assert.Equal(t, 15*time.Second, cfg.MinPollInterval)
 }
@@ -101,6 +101,9 @@ func TestValidate_ValidConfig(t *testing.T) {
 	cfg := &Config{
 		DatabaseURL:         "postgres://localhost/test",
 		SolanaRPCURL:        "https://api.mainnet-beta.solana.com",
+		TemporalHost:        "localhost:7233",
+		TemporalNamespace:   "default",
+		TemporalTaskQueue:   "forohtoo-wallet-polling",
 		DefaultPollInterval: 30 * time.Second,
 		MinPollInterval:     10 * time.Second,
 	}
@@ -112,6 +115,9 @@ func TestValidate_ValidConfig(t *testing.T) {
 func TestValidate_MissingDatabaseURL(t *testing.T) {
 	cfg := &Config{
 		SolanaRPCURL:        "https://api.mainnet-beta.solana.com",
+		TemporalHost:        "localhost:7233",
+		TemporalNamespace:   "default",
+		TemporalTaskQueue:   "forohtoo-wallet-polling",
 		DefaultPollInterval: 30 * time.Second,
 		MinPollInterval:     10 * time.Second,
 	}
@@ -125,6 +131,9 @@ func TestValidate_InvalidIntervals(t *testing.T) {
 	cfg := &Config{
 		DatabaseURL:         "postgres://localhost/test",
 		SolanaRPCURL:        "https://api.mainnet-beta.solana.com",
+		TemporalHost:        "localhost:7233",
+		TemporalNamespace:   "default",
+		TemporalTaskQueue:   "forohtoo-wallet-polling",
 		DefaultPollInterval: 10 * time.Second,
 		MinPollInterval:     30 * time.Second,
 	}
@@ -138,6 +147,9 @@ func TestValidate_TooShortInterval(t *testing.T) {
 	cfg := &Config{
 		DatabaseURL:         "postgres://localhost/test",
 		SolanaRPCURL:        "https://api.mainnet-beta.solana.com",
+		TemporalHost:        "localhost:7233",
+		TemporalNamespace:   "default",
+		TemporalTaskQueue:   "forohtoo-wallet-polling",
 		DefaultPollInterval: 500 * time.Millisecond,
 		MinPollInterval:     100 * time.Millisecond,
 	}
@@ -171,11 +183,12 @@ func TestMustLoad_Success(t *testing.T) {
 func cleanupEnv() {
 	os.Unsetenv("DATABASE_URL")
 	os.Unsetenv("SOLANA_RPC_URL")
-	os.Unsetenv("SOLANA_RPC_API_KEY")
 	os.Unsetenv("SERVER_ADDR")
 	os.Unsetenv("LOG_LEVEL")
 	os.Unsetenv("NATS_URL")
 	os.Unsetenv("TEMPORAL_HOST")
+	os.Unsetenv("TEMPORAL_NAMESPACE")
+	os.Unsetenv("TEMPORAL_TASK_QUEUE")
 	os.Unsetenv("DEFAULT_POLL_INTERVAL")
 	os.Unsetenv("MIN_POLL_INTERVAL")
 }

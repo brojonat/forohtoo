@@ -189,6 +189,92 @@ func responseToWallet(resp *walletResponse) (*Wallet, error) {
 	}, nil
 }
 
+// Transaction represents a Solana transaction event.
+type Transaction struct {
+	Signature          string    `json:"signature"`
+	Slot               int64     `json:"slot"`
+	WalletAddress      string    `json:"wallet_address"`
+	Amount             int64     `json:"amount"`
+	TokenType          string    `json:"token_type"`
+	Memo               string    `json:"memo,omitempty"`
+	Timestamp          time.Time `json:"timestamp"`
+	BlockTime          time.Time `json:"block_time"`
+	ConfirmationStatus string    `json:"confirmation_status"`
+	PublishedAt        time.Time `json:"published_at"`
+}
+
+// AwaitOptions defines options for waiting for a transaction.
+type AwaitOptions struct {
+	WorkflowID *string       // Filter by workflow_id in memo (JSON parsed)
+	Signature  *string       // Filter by exact signature
+	Timeout    time.Duration // How long to wait (default: 5m, max: 10m)
+}
+
+// Await blocks until a transaction matching the filter arrives, or times out.
+// This is designed for payment gating in Temporal workflows - an activity can
+// call this method and block until a payment arrives.
+//
+// Example:
+//
+//	workflowID := "payment-workflow-123"
+//	txn, err := client.Await(ctx, walletAddress, AwaitOptions{
+//	    WorkflowID: &workflowID,
+//	    Timeout: 5 * time.Minute,
+//	})
+func (c *Client) Await(ctx context.Context, address string, opts AwaitOptions) (*Transaction, error) {
+	// Build query parameters
+	query := url.Values{}
+	if opts.WorkflowID != nil {
+		query.Set("workflow_id", *opts.WorkflowID)
+	}
+	if opts.Signature != nil {
+		query.Set("signature", *opts.Signature)
+	}
+	if opts.Timeout > 0 {
+		query.Set("timeout", opts.Timeout.String())
+	}
+
+	u := fmt.Sprintf("%s/api/v1/wallets/%s/await?%s", c.baseURL, url.PathEscape(address), query.Encode())
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	c.logger.Debug("awaiting transaction",
+		"address", address,
+		"workflow_id", opts.WorkflowID,
+		"signature", opts.Signature,
+		"timeout", opts.Timeout,
+	)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusRequestTimeout {
+		return nil, fmt.Errorf("timeout waiting for transaction")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.parseErrorResponse(resp)
+	}
+
+	var txn Transaction
+	if err := json.NewDecoder(resp.Body).Decode(&txn); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	c.logger.Info("transaction received",
+		"address", address,
+		"signature", txn.Signature,
+		"amount", txn.Amount,
+	)
+
+	return &txn, nil
+}
+
 // parseErrorResponse attempts to parse an error response from the server.
 func (c *Client) parseErrorResponse(resp *http.Response) error {
 	var errResp struct {

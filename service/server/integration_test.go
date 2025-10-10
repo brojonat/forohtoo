@@ -12,6 +12,7 @@ import (
 	"github.com/brojonat/forohtoo/client"
 	"github.com/brojonat/forohtoo/service/db"
 	"github.com/brojonat/forohtoo/service/server"
+	"github.com/brojonat/forohtoo/service/temporal"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,10 +42,11 @@ func TestServerIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	store := db.NewStore(pool)
+	scheduler := temporal.NewMockScheduler()
 
 	// Create test server on random port
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := server.New(":0", store, logger) // :0 assigns random available port
+	srv := server.New(":0", store, scheduler, nil, logger) // :0 assigns random available port, nil for SSE
 
 	// Start server in background
 	serverAddr := make(chan string, 1)
@@ -53,7 +55,7 @@ func TestServerIntegration(t *testing.T) {
 		// We need to get the actual address after the server starts
 		// For now, use a fixed test port
 		testAddr := "localhost:18080"
-		srv = server.New(testAddr, store, logger)
+		srv = server.New(testAddr, store, scheduler, nil, logger)
 		serverAddr <- testAddr
 		serverErrors <- srv.Start()
 	}()
@@ -173,9 +175,10 @@ func TestHealthEndpoint(t *testing.T) {
 	defer pool.Close()
 
 	store := db.NewStore(pool)
+	scheduler := temporal.NewMockScheduler()
 
 	testAddr := "localhost:18081"
-	srv := server.New(testAddr, store, logger)
+	srv := server.New(testAddr, store, scheduler, nil, logger)
 
 	// Start server
 	go srv.Start()

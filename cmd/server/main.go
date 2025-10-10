@@ -11,7 +11,7 @@ import (
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
 	"github.com/brojonat/forohtoo/service/server"
-	"github.com/brojonat/forohtoo/service/solana"
+	"github.com/brojonat/forohtoo/service/temporal"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -49,31 +49,38 @@ func main() {
 	// Initialize database store
 	store := db.NewStore(dbPool)
 
-	// Initialize Solana RPC client
-	// Note: For premium RPC endpoints, include API key in the URL
-	solanaRPC := solana.NewRPCClient(cfg.SolanaRPCURL)
-	solanaClient := solana.NewClient(solanaRPC, logger)
-	logger.Info("initialized solana RPC client", "url", cfg.SolanaRPCURL)
-
-	// Initialize HTTP server
-	httpServer := server.New(cfg.ServerAddr, store, logger)
-
-	// TODO: Initialize NATS connection
-	// TODO: Initialize Temporal client
-	// TODO: Initialize poller service
-
-	logger.Info("server initialized, all dependencies ready",
-		"solana_rpc", cfg.SolanaRPCURL,
-		"nats_url", cfg.NATSURL,
-		"temporal_host", cfg.TemporalHost,
+	// Initialize Temporal client for schedule management
+	temporalClient, err := temporal.NewClient(
+		cfg.TemporalHost,
+		cfg.TemporalNamespace,
+		cfg.TemporalTaskQueue,
+		logger,
 	)
+	if err != nil {
+		logger.Error("failed to create temporal client", "error", err)
+		os.Exit(1)
+	}
+	defer temporalClient.Close()
+	logger.Info("connected to temporal", "host", cfg.TemporalHost, "namespace", cfg.TemporalNamespace)
 
-	// Prevent unused variable errors until we implement the full service
-	_ = solanaClient
+	// Initialize SSE publisher for streaming transactions
+	ssePublisher, err := server.NewSSEPublisher(cfg.NATSURL, logger)
+	if err != nil {
+		logger.Error("failed to create SSE publisher", "error", err)
+		os.Exit(1)
+	}
+	defer ssePublisher.Close()
+	logger.Info("connected to NATS for SSE streaming", "url", cfg.NATSURL)
+
+	// Initialize HTTP server with scheduler and SSE publisher
+	httpServer := server.New(cfg.ServerAddr, store, temporalClient, ssePublisher, logger)
+
+	logger.Info("HTTP server initialized, all dependencies ready")
 
 	// Start HTTP server in background
 	serverErrors := make(chan error, 1)
 	go func() {
+		logger.Info("starting HTTP server", "addr", cfg.ServerAddr)
 		serverErrors <- httpServer.Start()
 	}()
 
@@ -83,7 +90,7 @@ func main() {
 
 	select {
 	case err := <-serverErrors:
-		logger.Error("server error", "error", err)
+		logger.Error("HTTP server error", "error", err)
 		os.Exit(1)
 	case sig := <-shutdown:
 		logger.Info("shutdown signal received", "signal", sig.String())
@@ -92,12 +99,13 @@ func main() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer shutdownCancel()
 
+		logger.Info("stopping HTTP server")
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
-			logger.Error("failed to shutdown server gracefully", "error", err)
+			logger.Error("failed to shutdown HTTP server gracefully", "error", err)
 			os.Exit(1)
 		}
 
-		logger.Info("server shutdown complete")
+		logger.Info("HTTP server shutdown complete")
 	}
 }
 

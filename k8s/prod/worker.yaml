@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forohtoo-worker
+  labels:
+    app: forohtoo-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forohtoo-worker
+  template:
+    metadata:
+      labels:
+        app: forohtoo-worker
+    spec:
+      containers:
+      - name: worker
+        image: {{DOCKER_REPO}}/forohtoo:{{GIT_COMMIT_SHA}}
+        imagePullPolicy: Always
+        command: ["/worker"]
+        envFrom:
+        - secretRef:
+            name: forohtoo-secret-worker-envs
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      imagePullSecrets:
+      - name: regcred

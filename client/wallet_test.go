@@ -88,18 +88,19 @@ func TestGet_Success(t *testing.T) {
 		assert.Equal(t, "GET", r.Method)
 		assert.Equal(t, "/api/v1/wallets/wallet123", r.URL.Path)
 
-		wallet := Wallet{
-			Address:      "wallet123",
-			PollInterval: 30 * time.Second,
-			LastPollTime: &lastPoll,
-			Status:       "active",
-			CreatedAt:    now.Add(-1 * time.Hour),
-			UpdatedAt:    now,
+		// Return response in server format (poll_interval as string)
+		response := map[string]interface{}{
+			"address":        "wallet123",
+			"poll_interval":  "30s",
+			"last_poll_time": lastPoll,
+			"status":         "active",
+			"created_at":     now.Add(-1 * time.Hour),
+			"updated_at":     now,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(wallet)
+		json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -138,23 +139,22 @@ func TestList_Success(t *testing.T) {
 		assert.Equal(t, "GET", r.Method)
 		assert.Equal(t, "/api/v1/wallets", r.URL.Path)
 
-		response := struct {
-			Wallets []*Wallet `json:"wallets"`
-		}{
-			Wallets: []*Wallet{
+		// Return response in server format (poll_interval as string)
+		response := map[string]interface{}{
+			"wallets": []map[string]interface{}{
 				{
-					Address:      "wallet123",
-					PollInterval: 30 * time.Second,
-					Status:       "active",
-					CreatedAt:    now,
-					UpdatedAt:    now,
+					"address":       "wallet123",
+					"poll_interval": "30s",
+					"status":        "active",
+					"created_at":    now,
+					"updated_at":    now,
 				},
 				{
-					Address:      "wallet456",
-					PollInterval: 60 * time.Second,
-					Status:       "active",
-					CreatedAt:    now,
-					UpdatedAt:    now,
+					"address":       "wallet456",
+					"poll_interval": "1m0s",
+					"status":        "active",
+					"created_at":    now,
+					"updated_at":    now,
 				},
 			},
 		}
