@@ -300,12 +300,14 @@ func createScheduleCommand() *cli.Command {
 				},
 			}
 
-			// Create workflow action
+			// Create workflow action with proper input struct
 			workflowAction := client.ScheduleWorkflowAction{
 				ID:        fmt.Sprintf("poll-wallet-%s-${ScheduledTime}", address),
 				Workflow:  "PollWalletWorkflow",
 				TaskQueue: taskQueue,
-				Args:      []interface{}{address},
+				Args: []interface{}{map[string]interface{}{
+					"address": address,
+				}},
 			}
 
 			// Create the schedule
@@ -324,6 +326,98 @@ func createScheduleCommand() *cli.Command {
 			}
 
 			fmt.Printf("✓ Schedule created: %s\n", scheduleID)
+			fmt.Printf("  Wallet: %s\n", address)
+			fmt.Printf("  Interval: %v\n", interval)
+			fmt.Printf("  Task Queue: %s\n", taskQueue)
+			return nil
+		},
+	}
+}
+
+func recreateScheduleCommand() *cli.Command {
+	return &cli.Command{
+		Name:      "recreate-schedule",
+		Usage:     "Delete and recreate a Temporal schedule for a wallet (useful after code updates)",
+		ArgsUsage: "<wallet-address> <poll-interval>",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "task-queue",
+				Usage: "Task queue name",
+				Value: "forohtoo-wallet-polling",
+			},
+		},
+		Action: func(c *cli.Context) error {
+			if c.NArg() != 2 {
+				return fmt.Errorf("requires exactly two arguments: wallet-address poll-interval")
+			}
+
+			address := c.Args().Get(0)
+			intervalStr := c.Args().Get(1)
+			taskQueue := c.String("task-queue")
+
+			// Parse interval
+			interval, err := time.ParseDuration(intervalStr)
+			if err != nil {
+				return fmt.Errorf("invalid poll-interval: %w", err)
+			}
+
+			temporalClient, err := getTemporalClient(c)
+			if err != nil {
+				return err
+			}
+			defer temporalClient.Close()
+
+			ctx := context.Background()
+			scheduleID := "poll-wallet-" + address
+
+			// Try to delete existing schedule (ignore error if it doesn't exist)
+			fmt.Printf("Deleting existing schedule %s...\n", scheduleID)
+			handle := temporalClient.ScheduleClient().GetHandle(ctx, scheduleID)
+			err = handle.Delete(ctx)
+			if err != nil {
+				fmt.Printf("  Note: Schedule may not exist (this is OK): %v\n", err)
+			} else {
+				fmt.Printf("  ✓ Existing schedule deleted\n")
+			}
+
+			// Create schedule spec
+			scheduleSpec := client.ScheduleSpec{
+				Intervals: []client.ScheduleIntervalSpec{
+					{
+						Every: interval,
+					},
+				},
+			}
+
+			// Create workflow action with proper input struct
+			workflowAction := client.ScheduleWorkflowAction{
+				ID:        fmt.Sprintf("poll-wallet-%s-${ScheduledTime}", address),
+				Workflow:  "PollWalletWorkflow",
+				TaskQueue: taskQueue,
+				Args: []interface{}{map[string]interface{}{
+					"address": address,
+				}},
+			}
+
+			// Create the schedule
+			fmt.Printf("\nCreating new schedule...\n")
+			_, err = temporalClient.ScheduleClient().Create(ctx, client.ScheduleOptions{
+				ID:     scheduleID,
+				Spec:   scheduleSpec,
+				Action: &workflowAction,
+				Memo: map[string]interface{}{
+					"wallet_address": address,
+					"created_by":     "forohtoo-cli-recreate",
+					"recreated_at":   time.Now().Format(time.RFC3339),
+				},
+			})
+
+			if err != nil {
+				return fmt.Errorf("failed to create schedule: %w", err)
+			}
+
+			fmt.Printf("✓ Schedule recreated successfully!\n")
+			fmt.Printf("  Schedule ID: %s\n", scheduleID)
 			fmt.Printf("  Wallet: %s\n", address)
 			fmt.Printf("  Interval: %v\n", interval)
 			fmt.Printf("  Task Queue: %s\n", taskQueue)
@@ -468,7 +562,9 @@ func reconcileCommand() *cli.Command {
 						ID:        fmt.Sprintf("poll-wallet-%s-${ScheduledTime}", addr),
 						Workflow:  "PollWalletWorkflow",
 						TaskQueue: c.String("task-queue"),
-						Args:      []interface{}{addr},
+						Args: []interface{}{map[string]interface{}{
+							"address": addr,
+						}},
 					}
 
 					_, err = temporalClient.ScheduleClient().Create(ctx, client.ScheduleOptions{

@@ -46,6 +46,7 @@ Use this CLI to inspect database state, view Temporal schedules, and debug workf
 					resumeScheduleCommand(),
 					deleteScheduleCommand(),
 					createScheduleCommand(),
+					recreateScheduleCommand(),
 					reconcileCommand(),
 				},
 			},
