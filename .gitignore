@@ -25,7 +25,9 @@ vendor/
 .env
 .env.local
 .env.*.prod
+.env.server.dev
 .env.server.prod
+.env.worker.dev
 .env.worker.prod
 
 # IDE files

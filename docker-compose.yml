@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   postgres:
@@ -26,9 +26,9 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: forohtoo_test
     ports:
-      - "5433:5432"  # Different port to avoid conflicts
+      - "5433:5432" # Different port to avoid conflicts
     tmpfs:
-      - /var/lib/postgresql/data  # Use tmpfs for faster tests
+      - /var/lib/postgresql/data # Use tmpfs for faster tests
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -40,9 +40,9 @@ services:
     container_name: forohtoo-nats
     command: ["-js", "-sd", "/data"]
     ports:
-      - "4222:4222"  # Client connections
-      - "8222:8222"  # HTTP monitoring
-      - "6222:6222"  # Routing for clustering
+      - "4222:4222" # Client connections
+      - "8222:8222" # HTTP monitoring
+      - "6222:6222" # Routing for clustering
     volumes:
       - nats-data:/data
     healthcheck:
@@ -58,17 +58,24 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      - DB=postgresql
+      - DB=postgres12_pgx
       - DB_PORT=5432
       - POSTGRES_USER=postgres
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=postgres
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
     ports:
-      - "7233:7233"  # gRPC
-      - "8233:8233"  # HTTP API
+      - "7233:7233" # gRPC
+      - "8233:8233" # HTTP API
     healthcheck:
-      test: ["CMD", "tctl", "--address", "localhost:7233", "cluster", "health"]
+      test:
+        [
+          "CMD",
+          "tctl",
+          "--address",
+          "forohtoo-temporal:7233",
+          "cluster",
+          "health",
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -81,7 +88,7 @@ services:
       temporal:
         condition: service_healthy
     environment:
-      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_ADDRESS=forohtoo-temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
     ports:
       - "8080:8080"

@@ -1,3 +1,14 @@
+#!/usr/bin/env bash
+
+# Set the shell for make explicitly
+SHELL := /bin/bash
+
+define setup_env
+        $(eval ENV_FILE := $(1))
+        $(eval include $(1))
+        $(eval export)
+endef
+
 .PHONY: help
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -19,6 +30,7 @@ test-temporal: ## Run Temporal integration tests (requires temporal)
 
 .PHONY: test-integration
 test-integration: ## Run all integration tests (requires all services)
+	$(call setup_env, .env.test)
 	RUN_DB_TESTS=1 RUN_TEMPORAL_TESTS=1 go test ./... -v
 
 .PHONY: lint
