@@ -7,6 +7,9 @@
 bin/
 dist/
 
+# Built Go binaries
+cmd/forohtoo/forohtoo
+
 # Test binary, built with `go test -c`
 *.test
 
