@@ -17,61 +17,42 @@ if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     exit 0
 fi
 
-# Start new tmux session
-tmux new-session -d -s "$SESSION_NAME" -n "main"
+# Start new tmux session and name the first window "Server"
+tmux new-session -d -s "$SESSION_NAME" -n "Server"
+tmux send-keys -t "$SESSION_NAME:Server.0" "./scripts/run-server.sh" C-m
 
-# Window 0: Main window with 4 panes
-# Layout:
-#   +-----------------+-----------------+
-#   |                 |                 |
-#   |   Server        |   Logs          |
-#   |                 |                 |
-#   +-----------------+-----------------+
-#   |                 |                 |
-#   |   Tests         |   Shell         |
-#   |                 |                 |
-#   +-----------------+-----------------+
+# Create Worker window
+tmux new-window -n "Worker" -t "$SESSION_NAME"
+tmux send-keys -t "$SESSION_NAME:Worker.0" "./scripts/run-worker.sh" C-m
 
-# Create the layout
-tmux split-window -h -t "$SESSION_NAME:0"
-tmux split-window -v -t "$SESSION_NAME:0.0"
-tmux split-window -v -t "$SESSION_NAME:0.1"
+# Create Server Logs window
+tmux new-window -n "Server Logs" -t "$SESSION_NAME"
+tmux send-keys -t "$SESSION_NAME:Server Logs.0" "echo 'Waiting for server log...' && until test -f logs/server.log; do sleep 1; done; tail -f logs/server.log | jq ." C-m
 
-# Pane 0 (top-left): Server
-tmux send-keys -t "$SESSION_NAME:0.0" "# Run server with logging" C-m
-tmux send-keys -t "$SESSION_NAME:0.0" "# Example: make run | tee logs/server.log" C-m
-tmux send-keys -t "$SESSION_NAME:0.0" "# or: go run ./cmd/server 2>&1 | tee logs/server.log" C-m
+# Create Worker Logs window
+tmux new-window -n "Worker Logs" -t "$SESSION_NAME"
+tmux send-keys -t "$SESSION_NAME:Worker Logs.0" "echo 'Waiting for worker log...' && until test -f logs/worker.log; do sleep 1; done; tail -f logs/worker.log | jq ." C-m
 
-# Pane 1 (top-right): Logs viewer
-tmux send-keys -t "$SESSION_NAME:0.1" "# Watch server logs (JSON formatted)" C-m
-tmux send-keys -t "$SESSION_NAME:0.1" "# Example: tail -f logs/server.log | jq ." C-m
-tmux send-keys -t "$SESSION_NAME:0.1" "# or: tail -f logs/server.log | jq 'select(.level==\"ERROR\")'" C-m
+# Create Shell window
+tmux new-window -n "Shell" -t "$SESSION_NAME"
+tmux send-keys -t "$SESSION_NAME:Shell.0" "# General shell" C-m
 
-# Pane 2 (bottom-left): Tests
-tmux send-keys -t "$SESSION_NAME:0.2" "# Run tests" C-m
-tmux send-keys -t "$SESSION_NAME:0.2" "# Example: go test ./... -v" C-m
-tmux send-keys -t "$SESSION_NAME:0.2" "# or: make test" C-m
-
-# Pane 3 (bottom-right): Shell
-tmux send-keys -t "$SESSION_NAME:0.3" "# General shell" C-m
-tmux send-keys -t "$SESSION_NAME:0.3" "# Check services: docker compose ps" C-m
-tmux send-keys -t "$SESSION_NAME:0.3" "# View DB: psql \$DATABASE_URL" C-m
-
-# Select the server pane
-tmux select-pane -t "$SESSION_NAME:0.0"
+# Select the Server window to be active
+tmux select-window -t "$SESSION_NAME:Server"
 
 echo "Starting tmux session: $SESSION_NAME"
 echo ""
-echo "Pane layout:"
-echo "  0: Server (top-left)"
-echo "  1: Logs (top-right)"
-echo "  2: Tests (bottom-left)"
-echo "  3: Shell (bottom-right)"
+echo "Windows created:"
+echo "  - Server"
+echo "  - Worker"
+echo "  - Server Logs"
+echo "  - Worker Logs"
+echo "  - Shell"
 echo ""
 echo "Tips:"
-echo "  - Switch panes: Ctrl+b then arrow key"
+echo "  - Switch windows: Ctrl+b then window number (e.g., Ctrl+b 0)"
 echo "  - Detach: Ctrl+b then d"
-echo "  - Kill session: tmux kill-session -t $SESSION_NAME"
+echo "  - Kill session: tmux kill-session -t $SESSION_NAME (or 'make stop-dev-session')"
 echo ""
 
 # Attach to session

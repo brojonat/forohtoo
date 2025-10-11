@@ -70,9 +70,13 @@ run: build ## Build and run both server and worker
 run-dev: ## Run server with hot reload using air
 	air
 
-.PHONY: dev
-dev: ## Start tmux development session
+.PHONY: start-dev-session
+start-dev-session: ## Start tmux development session
 	./scripts/dev.sh
+
+.PHONY: stop-dev-session
+stop-dev-session: ## Stop tmux development session
+	tmux kill-session -t forohtoo || true
 
 .PHONY: sqlc-generate
 sqlc-generate: ## Generate Go code from SQL queries
