@@ -70,7 +70,7 @@ func (c *Client) CreateWalletSchedule(ctx context.Context, address string, inter
 		ID:        fmt.Sprintf("poll-wallet-%s-${ScheduledTime}", address),
 		Workflow:  "PollWalletWorkflow",
 		TaskQueue: c.taskQueue,
-		Args:      []interface{}{address},
+		Args:      []interface{}{PollWalletInput{Address: address}},
 	}
 
 	// Create the schedule
