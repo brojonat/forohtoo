@@ -17,6 +17,7 @@ type Server struct {
 	store        *db.Store
 	scheduler    temporal.Scheduler
 	ssePublisher *SSEPublisher
+	renderer     *TemplateRenderer
 	logger       *slog.Logger
 	server       *http.Server
 }
@@ -24,6 +25,7 @@ type Server struct {
 // New creates a new HTTP server with the given dependencies.
 // The scheduler is used to create/delete Temporal schedules for wallet polling.
 // The ssePublisher is optional - if nil, SSE endpoints won't be available.
+// The renderer is optional - if nil, HTML endpoints won't be available.
 func New(addr string, store *db.Store, scheduler temporal.Scheduler, ssePublisher *SSEPublisher, logger *slog.Logger) *Server {
 	return &Server{
 		addr:         addr,
@@ -32,6 +34,17 @@ func New(addr string, store *db.Store, scheduler temporal.Scheduler, ssePublishe
 		ssePublisher: ssePublisher,
 		logger:       logger,
 	}
+}
+
+// WithTemplates adds template rendering support to the server
+func (s *Server) WithTemplates(templatesDir string) error {
+	renderer, err := NewTemplateRenderer(templatesDir, s.logger)
+	if err != nil {
+		return fmt.Errorf("failed to initialize templates: %w", err)
+	}
+	s.renderer = renderer
+	s.logger.Info("HTML templates loaded", "dir", templatesDir)
+	return nil
 }
 
 // Start starts the HTTP server.
@@ -51,6 +64,13 @@ func (s *Server) Start() error {
 		s.logger.Info("SSE streaming endpoints enabled")
 	} else {
 		s.logger.Warn("SSE publisher not configured, streaming endpoints disabled")
+	}
+
+	// HTML pages (if template renderer is configured)
+	if s.renderer != nil {
+		mux.HandleFunc("GET /", handleSSEClientPage(s.renderer))
+		mux.HandleFunc("GET /stream", handleSSEClientPage(s.renderer))
+		s.logger.Info("HTML page endpoints enabled")
 	}
 
 	// Health check endpoint

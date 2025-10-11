@@ -7,11 +7,9 @@ set -e
 # Create logs directory
 mkdir -p logs
 
-# Use test database for demo
-export DATABASE_URL="postgres://postgres:postgres@localhost:5433/forohtoo_test?sslmode=disable"
-export SOLANA_RPC_URL="https://api.mainnet-beta.solana.com"
-export SERVER_ADDR=":8080"
-export LOG_LEVEL="debug"
+set -a
+source .env.server.dev
+set +a
 
 echo "Starting server..."
 echo "Database: $DATABASE_URL"
