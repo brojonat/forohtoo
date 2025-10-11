@@ -26,7 +26,8 @@ func signatureToDomain(sig *rpc.TransactionSignature) *Transaction {
 
 	// Check if transaction failed
 	if sig.Err != nil {
-		txn.Err = fmt.Errorf("transaction failed: %v", sig.Err)
+		errMsg := fmt.Sprintf("transaction failed: %v", sig.Err)
+		txn.Err = &errMsg
 	}
 
 	// Note: Amount, TokenMint, and Memo are not available in the signature list.

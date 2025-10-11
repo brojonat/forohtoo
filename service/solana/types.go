@@ -15,7 +15,7 @@ type Transaction struct {
 	Amount    uint64
 	TokenMint *string // nil for native SOL transfers
 	Memo      *string // parsed from transaction instructions
-	Err       error   // nil if transaction succeeded, contains error if failed
+	Err       *string // nil if transaction succeeded, contains error message if failed
 }
 
 // GetTransactionsSinceParams contains parameters for polling new transactions.

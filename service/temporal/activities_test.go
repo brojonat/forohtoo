@@ -308,7 +308,7 @@ func TestActivities_WriteTransactions_SetsConfirmationStatus(t *testing.T) {
 				Slot:      999,
 				BlockTime: time.Now(),
 				Amount:    200,
-				Err:       errors.New("transaction failed"), // Has error = failed
+				Err:       stringPtr("transaction failed"), // Has error = failed
 			},
 		},
 	}

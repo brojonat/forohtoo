@@ -67,7 +67,7 @@ func (c *Client) CreateWalletSchedule(ctx context.Context, address string, inter
 
 	// Create workflow action - this will execute the PollWalletWorkflow
 	workflowAction := client.ScheduleWorkflowAction{
-		ID:        fmt.Sprintf("poll-wallet-%s-${ScheduledTime}", address),
+		ID:        fmt.Sprintf("poll-wallet-%s-{{.ScheduledTime.Unix}}", address),
 		Workflow:  "PollWalletWorkflow",
 		TaskQueue: c.taskQueue,
 		Args:      []interface{}{PollWalletInput{Address: address}},
