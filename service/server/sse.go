@@ -71,7 +71,6 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("Access-Control-Allow-Origin", "*") // Configure CORS as needed
 
 		// Flush headers immediately
 		if flusher, ok := w.(http.Flusher); ok {
@@ -107,13 +106,22 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 		// Start consuming messages
 		go func() {
 			defer close(doneChan)
-			_, _ = cons.Consume(func(msg jetstream.Msg) {
+			cc, err := cons.Consume(func(msg jetstream.Msg) {
 				select {
 				case msgChan <- msg:
 				case <-r.Context().Done():
 					return
 				}
 			})
+			if err != nil {
+				logger.ErrorContext(r.Context(), "failed to start consuming messages",
+					"error", err,
+				)
+				return
+			}
+			// Wait for context to be done, then stop consuming
+			<-r.Context().Done()
+			cc.Stop()
 		}()
 
 		// Send initial connection event
@@ -122,9 +130,20 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 			flusher.Flush()
 		}
 
+		// Create ticker for keepalive comments (every 10 seconds)
+		keepalive := time.NewTicker(10 * time.Second)
+		defer keepalive.Stop()
+
 		// Stream events to client
 		for {
 			select {
+			case <-keepalive.C:
+				// Send keepalive comment to prevent timeout
+				fmt.Fprintf(w, ": keepalive\n\n")
+				if flusher, ok := w.(http.Flusher); ok {
+					flusher.Flush()
+				}
+
 			case msg := <-msgChan:
 				var event natspkg.TransactionEvent
 				if err := json.Unmarshal(msg.Data(), &event); err != nil {
@@ -180,7 +199,6 @@ func handleStreamAllTransactions(publisher *SSEPublisher, logger *slog.Logger) h
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("Access-Control-Allow-Origin", "*") // Configure CORS as needed
 
 		// Flush headers immediately
 		if flusher, ok := w.(http.Flusher); ok {
@@ -214,13 +232,22 @@ func handleStreamAllTransactions(publisher *SSEPublisher, logger *slog.Logger) h
 		// Start consuming messages
 		go func() {
 			defer close(doneChan)
-			_, _ = cons.Consume(func(msg jetstream.Msg) {
+			cc, err := cons.Consume(func(msg jetstream.Msg) {
 				select {
 				case msgChan <- msg:
 				case <-r.Context().Done():
 					return
 				}
 			})
+			if err != nil {
+				logger.ErrorContext(r.Context(), "failed to start consuming messages",
+					"error", err,
+				)
+				return
+			}
+			// Wait for context to be done, then stop consuming
+			<-r.Context().Done()
+			cc.Stop()
 		}()
 
 		// Send initial connection event
@@ -229,9 +256,20 @@ func handleStreamAllTransactions(publisher *SSEPublisher, logger *slog.Logger) h
 			flusher.Flush()
 		}
 
+		// Create ticker for keepalive comments (every 10 seconds)
+		keepalive := time.NewTicker(10 * time.Second)
+		defer keepalive.Stop()
+
 		// Stream events to client
 		for {
 			select {
+			case <-keepalive.C:
+				// Send keepalive comment to prevent timeout
+				fmt.Fprintf(w, ": keepalive\n\n")
+				if flusher, ok := w.(http.Flusher); ok {
+					flusher.Flush()
+				}
+
 			case msg := <-msgChan:
 				var event natspkg.TransactionEvent
 				if err := json.Unmarshal(msg.Data(), &event); err != nil {

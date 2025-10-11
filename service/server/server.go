@@ -79,9 +79,12 @@ func (s *Server) Start() error {
 		w.Write([]byte("OK"))
 	})
 
+	// Wrap mux with CORS middleware
+	handler := corsMiddleware(mux)
+
 	s.server = &http.Server{
 		Addr:         s.addr,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -109,4 +112,24 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return s.server.Shutdown(ctx)
 	}
 	return nil
+}
+
+// corsMiddleware adds CORS headers to all responses and handles OPTIONS preflight requests.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers for all requests
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Max-Age", "3600")
+
+		// Handle preflight OPTIONS requests
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// Pass through to next handler
+		next.ServeHTTP(w, r)
+	})
 }

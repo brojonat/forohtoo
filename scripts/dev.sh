@@ -51,8 +51,8 @@ tmux split-window -v -t 1
 # 4: Worker Logs (bottom-middle)
 # 2: Shell (right)
 
-# Pane 0: Server
-tmux send-keys -t "$SESSION_NAME:main.0" "./scripts/run-server.sh" C-m
+# Pane 0: Server (with air hot-reloading)
+tmux send-keys -t "$SESSION_NAME:main.0" "air -c .air.toml" C-m
 
 # Pane 3: Server Logs
 tmux send-keys -t "$SESSION_NAME:main.3" "echo 'Waiting for server log...' && until test -f logs/server.log; do sleep 1; done; tail -f logs/server.log | jq ." C-m
@@ -72,7 +72,7 @@ tmux select-pane -t "$SESSION_NAME:main.2"
 echo "Starting tmux session: $SESSION_NAME"
 echo ""
 echo "Pane layout:"
-echo "  - Top-left: Server"
+echo "  - Top-left: Server (hot-reloading with air)"
 echo "  - Bottom-left: Server Logs"
 echo "  - Top-middle: Worker"
 echo "  - Bottom-middle: Worker Logs"
