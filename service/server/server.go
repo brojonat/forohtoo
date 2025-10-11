@@ -48,10 +48,9 @@ func (s *Server) Start() error {
 	if s.ssePublisher != nil {
 		mux.Handle("GET /api/v1/stream/transactions/{address}", handleStreamTransactions(s.ssePublisher, s.logger))
 		mux.Handle("GET /api/v1/stream/transactions", handleStreamAllTransactions(s.ssePublisher, s.logger))
-		mux.Handle("GET /api/v1/wallets/{address}/await", handleAwaitTransaction(s.ssePublisher, s.logger))
-		s.logger.Info("SSE streaming and await endpoints enabled")
+		s.logger.Info("SSE streaming endpoints enabled")
 	} else {
-		s.logger.Warn("SSE publisher not configured, streaming and await endpoints disabled")
+		s.logger.Warn("SSE publisher not configured, streaming endpoints disabled")
 	}
 
 	// Health check endpoint

@@ -2,10 +2,6 @@
 
 A Go-based service and client library for polling Solana wallets and integrating payment verification into Temporal workflows. This system decouples Solana RPC polling from client applications, enabling efficient payment tracking across multiple services without rate limit concerns.
 
-## ⚠️ Future Work Note
-
-The current `await` endpoint implementation uses vanilla HTTP long-polling for blocking payment verification. While this works well for direct worker-to-server connections, we plan to migrate to an **SSE-based approach** for improved robustness through proxies and load balancers. The SSE version would provide automatic reconnection and better handling of long-lived connections in production environments. The current HTTP implementation is functional and suitable for most use cases, especially with direct connections.
-
 ## Architecture
 
 ```
@@ -398,19 +394,14 @@ forohtoo sse stream YOUR_WALLET_ADDRESS --server http://production-server:8080
 
 ### Blocking Payment Verification (Await)
 
-The **await endpoint** is the core feature for payment gating in Temporal workflows. It blocks an HTTP request until a transaction matching specific criteria arrives, enabling workflows to pause until payment is confirmed.
+The **client.Await()** method is the core feature for payment gating in Temporal workflows. It connects to SSE and blocks until a transaction matching your custom criteria arrives, enabling workflows to pause until payment is confirmed.
 
-**Endpoint:** `GET /api/v1/wallets/{address}/await`
-
-**Query Parameters:**
-- `workflow_id` - Filter by workflow_id in transaction memo (JSON parsed)
-- `signature` - Filter by exact transaction signature
-- `timeout` - Optional timeout duration (default: 5m, max: 10m)
-
-**Example HTTP Request:**
-```bash
-curl "http://localhost:8080/api/v1/wallets/YOUR_WALLET/await?workflow_id=payment-workflow-123&timeout=5m"
-```
+**How It Works:**
+- Connects to SSE stream for a wallet
+- Calls your matcher function on every transaction
+- Returns when matcher returns `true`
+- Robust through proxies (SSE auto-reconnects)
+- Client-side filtering (any logic you want)
 
 **Go Client Library:**
 ```go
@@ -419,12 +410,29 @@ import "github.com/brojonat/forohtoo/client"
 // Create client
 cl := client.NewClient("http://localhost:8080", nil, logger)
 
-// Block until transaction with workflow_id arrives
-workflowID := "payment-workflow-123"
-txn, err := cl.Await(ctx, walletAddress, client.AwaitOptions{
-    WorkflowID: &workflowID,
-    Timeout: 5 * time.Minute,
+// Block until transaction matching your criteria arrives
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+defer cancel()
+
+txn, err := cl.Await(ctx, walletAddress, func(txn *client.Transaction) bool {
+    // Custom matching logic - any condition you want!
+
+    // Example 1: Match by workflow_id in memo
+    return strings.Contains(txn.Memo, "payment-workflow-123")
+
+    // Example 2: Match by minimum amount
+    // return txn.Amount >= 1000000000 // 1 SOL
+
+    // Example 3: Match by signature
+    // return txn.Signature == expectedSignature
+
+    // Example 4: Complex logic
+    // if txn.Amount < minimumAmount {
+    //     return false
+    // }
+    // return containsWorkflowID(txn.Memo, expectedID)
 })
+
 if err != nil {
     return fmt.Errorf("payment not received: %w", err)
 }
@@ -444,7 +452,7 @@ forohtoo client await YOUR_WALLET --signature SIG_HERE
 # JSON output for automation
 forohtoo client await YOUR_WALLET --workflow-id xyz --json
 
-# Custom timeout
+# Custom timeout (via context in code, flag in CLI)
 forohtoo client await YOUR_WALLET --workflow-id xyz --timeout 10m
 ```
 
@@ -455,13 +463,10 @@ forohtoo client await YOUR_WALLET --workflow-id xyz --timeout 10m
 func WaitForPaymentActivity(ctx context.Context, walletAddr string, workflowID string) (*client.Transaction, error) {
     cl := client.NewClient(serverURL, nil, logger)
 
-    opts := client.AwaitOptions{
-        WorkflowID: &workflowID,
-        Timeout: 10 * time.Minute,
-    }
-
-    // This blocks until payment arrives or timeout
-    return cl.Await(ctx, walletAddr, opts)
+    // Block until transaction with matching workflow_id arrives
+    return cl.Await(ctx, walletAddr, func(txn *client.Transaction) bool {
+        return strings.Contains(txn.Memo, workflowID)
+    })
 }
 
 // Workflow
@@ -490,17 +495,18 @@ func PaymentGatedWorkflow(ctx workflow.Context, order Order) error {
 ```
 
 **Benefits:**
-- **Simple Integration**: Just HTTP - no NATS client required
-- **Workflow-native**: Blocks like any other activity in Temporal
-- **Automatic Filtering**: Server filters transactions, client only receives matches
-- **Timeout Handling**: Built-in timeout prevents infinite blocking
-- **Idempotent**: Safe to retry - will return same transaction if called again
+- **Flexible Filtering**: Callback can implement ANY matching logic
+- **SSE-Based**: Robust through proxies and load balancers
+- **Auto-Reconnect**: SSE handles connection drops automatically
+- **Client-Side Control**: See all transactions, decide what matches
+- **Context Timeout**: Standard Go context for timeout handling
+- **Simple Integration**: Just HTTP/SSE - no NATS client required
 
 **Security Considerations:**
-- Consider adding authentication (JWT, API keys)
-- Validate workflow_id format to prevent injection
+- Consider adding authentication (JWT, API keys) to SSE endpoints
 - Use HTTPS in production
-- Monitor for abuse (many simultaneous await requests)
+- Validate memo format to prevent injection attacks
+- Monitor SSE connection count for abuse
 
 #### CLI Tool (NATS Direct)
 

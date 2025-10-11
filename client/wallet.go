@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -203,76 +205,132 @@ type Transaction struct {
 	PublishedAt        time.Time `json:"published_at"`
 }
 
-// AwaitOptions defines options for waiting for a transaction.
-type AwaitOptions struct {
-	WorkflowID *string       // Filter by workflow_id in memo (JSON parsed)
-	Signature  *string       // Filter by exact signature
-	Timeout    time.Duration // How long to wait (default: 5m, max: 10m)
-}
-
-// Await blocks until a transaction matching the filter arrives, or times out.
+// Await blocks until a transaction matching the matcher function arrives.
+// The matcher is called for each transaction received via SSE, and Await
+// returns when the matcher returns true.
+//
 // This is designed for payment gating in Temporal workflows - an activity can
 // call this method and block until a payment arrives.
 //
 // Example:
 //
-//	workflowID := "payment-workflow-123"
-//	txn, err := client.Await(ctx, walletAddress, AwaitOptions{
-//	    WorkflowID: &workflowID,
-//	    Timeout: 5 * time.Minute,
+//	txn, err := client.Await(ctx, walletAddress, func(txn *Transaction) bool {
+//	    // Check if memo contains expected workflow ID
+//	    return strings.Contains(txn.Memo, "payment-workflow-123")
 //	})
-func (c *Client) Await(ctx context.Context, address string, opts AwaitOptions) (*Transaction, error) {
-	// Build query parameters
-	query := url.Values{}
-	if opts.WorkflowID != nil {
-		query.Set("workflow_id", *opts.WorkflowID)
-	}
-	if opts.Signature != nil {
-		query.Set("signature", *opts.Signature)
-	}
-	if opts.Timeout > 0 {
-		query.Set("timeout", opts.Timeout.String())
-	}
+func (c *Client) Await(ctx context.Context, address string, matcher func(*Transaction) bool) (*Transaction, error) {
+	// Build SSE stream URL
+	u := fmt.Sprintf("%s/api/v1/stream/transactions/%s", c.baseURL, url.PathEscape(address))
 
-	u := fmt.Sprintf("%s/api/v1/wallets/%s/await?%s", c.baseURL, url.PathEscape(address), query.Encode())
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+	req.Header.Set("Accept", "text/event-stream")
 
-	c.logger.Debug("awaiting transaction",
-		"address", address,
-		"workflow_id", opts.WorkflowID,
-		"signature", opts.Signature,
-		"timeout", opts.Timeout,
-	)
+	c.logger.Debug("awaiting transaction via SSE", "address", address)
 
-	resp, err := c.httpClient.Do(req)
+	// Create HTTP client with no timeout for streaming
+	streamClient := &http.Client{
+		Timeout: 0, // No timeout for SSE
+	}
+
+	resp, err := streamClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("failed to connect to SSE stream: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusRequestTimeout {
-		return nil, fmt.Errorf("timeout waiting for transaction")
-	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, c.parseErrorResponse(resp)
 	}
 
-	var txn Transaction
-	if err := json.NewDecoder(resp.Body).Decode(&txn); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	// Parse SSE events
+	return c.parseSSEStream(ctx, resp.Body, matcher)
+}
+
+// parseSSEStream parses SSE events and calls matcher on each transaction.
+func (c *Client) parseSSEStream(ctx context.Context, body io.Reader, matcher func(*Transaction) bool) (*Transaction, error) {
+	scanner := bufio.NewScanner(body)
+	var currentEvent, currentData string
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		line := scanner.Text()
+
+		// Empty line indicates end of event
+		if line == "" {
+			if currentEvent != "" && currentData != "" {
+				if txn, done := c.handleSSEEvent(currentEvent, currentData, matcher); done {
+					return txn, nil
+				}
+			}
+			currentEvent = ""
+			currentData = ""
+			continue
+		}
+
+		// Parse event line
+		if strings.HasPrefix(line, "event:") {
+			currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		} else if strings.HasPrefix(line, "data:") {
+			currentData = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		}
 	}
 
-	c.logger.Info("transaction received",
-		"address", address,
-		"signature", txn.Signature,
-		"amount", txn.Amount,
-	)
+	if err := scanner.Err(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("error reading SSE stream: %w", err)
+	}
 
-	return &txn, nil
+	return nil, fmt.Errorf("SSE stream closed unexpectedly")
+}
+
+// handleSSEEvent processes an SSE event and returns transaction if matcher succeeds.
+func (c *Client) handleSSEEvent(eventType, data string, matcher func(*Transaction) bool) (*Transaction, bool) {
+	switch eventType {
+	case "connected":
+		c.logger.Debug("SSE stream connected")
+		return nil, false
+
+	case "transaction":
+		var txn Transaction
+		if err := json.Unmarshal([]byte(data), &txn); err != nil {
+			c.logger.Warn("failed to unmarshal transaction", "error", err)
+			return nil, false
+		}
+
+		c.logger.Debug("received transaction",
+			"signature", txn.Signature,
+			"amount", txn.Amount,
+		)
+
+		// Call matcher function
+		if matcher(&txn) {
+			c.logger.Info("transaction matched",
+				"signature", txn.Signature,
+				"amount", txn.Amount,
+			)
+			return &txn, true
+		}
+
+		return nil, false
+
+	case "error":
+		c.logger.Warn("SSE error event", "data", data)
+		return nil, false
+
+	default:
+		// Unknown event type, ignore
+		return nil, false
+	}
 }
 
 // parseErrorResponse attempts to parse an error response from the server.

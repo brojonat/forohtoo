@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/brojonat/forohtoo/client"
@@ -73,28 +73,27 @@ func awaitCommand() *cli.Command {
 				return fmt.Errorf("must specify --workflow-id or --signature")
 			}
 
-			// Create HTTP client with appropriate timeout
-			httpClient := &http.Client{
-				Timeout: timeout + 30*time.Second, // Add buffer beyond server timeout
-			}
-
 			// Create logger
 			logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 				Level: slog.LevelError, // Only errors to stderr
 			}))
 
 			// Create client
-			cl := client.NewClient(serverURL, httpClient, logger)
+			cl := client.NewClient(serverURL, nil, logger)
 
-			// Build await options
-			opts := client.AwaitOptions{
-				Timeout: timeout,
-			}
-			if workflowID != "" {
-				opts.WorkflowID = &workflowID
-			}
-			if signature != "" {
-				opts.Signature = &signature
+			// Build matcher function based on flags
+			matcher := func(txn *client.Transaction) bool {
+				// Check signature match
+				if signature != "" && txn.Signature != signature {
+					return false
+				}
+
+				// Check workflow_id in memo
+				if workflowID != "" {
+					return strings.Contains(txn.Memo, workflowID)
+				}
+
+				return true
 			}
 
 			// Print waiting message
@@ -109,9 +108,11 @@ func awaitCommand() *cli.Command {
 				fmt.Fprintf(os.Stderr, "  Timeout: %v\n\n", timeout)
 			}
 
-			// Block until transaction arrives
-			ctx := context.Background()
-			txn, err := cl.Await(ctx, address, opts)
+			// Block until transaction arrives (with context timeout)
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			txn, err := cl.Await(ctx, address, matcher)
 			if err != nil {
 				return fmt.Errorf("failed to await transaction: %w", err)
 			}
