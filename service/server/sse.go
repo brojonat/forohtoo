@@ -57,14 +57,22 @@ func (p *SSEPublisher) Close() error {
 	return nil
 }
 
-// handleStreamTransactions handles SSE streaming for a specific wallet.
+// handleStreamTransactions handles SSE streaming for transactions.
+// If address path parameter is empty, streams all wallets. Otherwise, streams specific wallet.
 func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Get wallet address from URL path parameter
+		// Get wallet address from URL path parameter (may be empty for "all wallets" route)
 		address := r.PathValue("address")
+
+		// Determine subject filter and description for logging/responses
+		var subject string
+		var walletDesc string
 		if address == "" {
-			writeError(w, "wallet address is required", http.StatusBadRequest)
-			return
+			subject = "txns.*"
+			walletDesc = "all wallets"
+		} else {
+			subject = fmt.Sprintf("txns.%s", address)
+			walletDesc = address
 		}
 
 		// Set SSE headers
@@ -78,21 +86,20 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 		}
 
 		logger.DebugContext(r.Context(), "SSE client connected",
-			"wallet", address,
+			"wallet", walletDesc,
 			"remote_addr", r.RemoteAddr,
 		)
-
-		subject := fmt.Sprintf("txns.%s", address)
 
 		// Create ephemeral consumer for this connection
 		cons, err := publisher.js.CreateOrUpdateConsumer(r.Context(), natspkg.StreamName, jetstream.ConsumerConfig{
 			FilterSubject: subject,
 			AckPolicy:     jetstream.AckExplicitPolicy,
+			DeliverPolicy: jetstream.DeliverNewPolicy, // Only deliver new messages after consumer creation
 			// Ephemeral - will be deleted when connection closes
 		})
 		if err != nil {
 			logger.ErrorContext(r.Context(), "failed to create consumer",
-				"wallet", address,
+				"wallet", walletDesc,
 				"error", err,
 			)
 			fmt.Fprintf(w, "event: error\ndata: {\"error\": \"failed to subscribe\"}\n\n")
@@ -125,7 +132,7 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 		}()
 
 		// Send initial connection event
-		fmt.Fprintf(w, "event: connected\ndata: {\"wallet\":\"%s\"}\n\n", address)
+		fmt.Fprintf(w, "event: connected\ndata: {\"wallet\":\"%s\"}\n\n", walletDesc)
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()
 		}
@@ -179,132 +186,7 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 			case <-r.Context().Done():
 				// Client disconnected
 				logger.DebugContext(r.Context(), "SSE client disconnected",
-					"wallet", address,
-					"remote_addr", r.RemoteAddr,
-				)
-				return
-
-			case <-doneChan:
-				// Consumer closed
-				return
-			}
-		}
-	})
-}
-
-// handleStreamAllTransactions handles SSE streaming for all wallets.
-func handleStreamAllTransactions(publisher *SSEPublisher, logger *slog.Logger) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Set SSE headers
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-
-		// Flush headers immediately
-		if flusher, ok := w.(http.Flusher); ok {
-			flusher.Flush()
-		}
-
-		logger.DebugContext(r.Context(), "SSE client connected (all wallets)",
-			"remote_addr", r.RemoteAddr,
-		)
-
-		// Subscribe to all transaction subjects
-		subject := "txns.*"
-
-		// Create ephemeral consumer for this connection
-		cons, err := publisher.js.CreateOrUpdateConsumer(r.Context(), natspkg.StreamName, jetstream.ConsumerConfig{
-			FilterSubject: subject,
-			AckPolicy:     jetstream.AckExplicitPolicy,
-		})
-		if err != nil {
-			logger.ErrorContext(r.Context(), "failed to create consumer",
-				"error", err,
-			)
-			fmt.Fprintf(w, "event: error\ndata: {\"error\": \"failed to subscribe\"}\n\n")
-			return
-		}
-
-		// Create buffered channel for messages
-		msgChan := make(chan jetstream.Msg, 10)
-		doneChan := make(chan struct{})
-
-		// Start consuming messages
-		go func() {
-			defer close(doneChan)
-			cc, err := cons.Consume(func(msg jetstream.Msg) {
-				select {
-				case msgChan <- msg:
-				case <-r.Context().Done():
-					return
-				}
-			})
-			if err != nil {
-				logger.ErrorContext(r.Context(), "failed to start consuming messages",
-					"error", err,
-				)
-				return
-			}
-			// Wait for context to be done, then stop consuming
-			<-r.Context().Done()
-			cc.Stop()
-		}()
-
-		// Send initial connection event
-		fmt.Fprintf(w, "event: connected\ndata: {\"message\":\"subscribed to all wallets\"}\n\n")
-		if flusher, ok := w.(http.Flusher); ok {
-			flusher.Flush()
-		}
-
-		// Create ticker for keepalive comments (every 10 seconds)
-		keepalive := time.NewTicker(10 * time.Second)
-		defer keepalive.Stop()
-
-		// Stream events to client
-		for {
-			select {
-			case <-keepalive.C:
-				// Send keepalive comment to prevent timeout
-				fmt.Fprintf(w, ": keepalive\n\n")
-				if flusher, ok := w.(http.Flusher); ok {
-					flusher.Flush()
-				}
-
-			case msg := <-msgChan:
-				var event natspkg.TransactionEvent
-				if err := json.Unmarshal(msg.Data(), &event); err != nil {
-					logger.WarnContext(r.Context(), "failed to unmarshal event",
-						"error", err,
-					)
-					msg.Ack()
-					continue
-				}
-
-				// Send transaction event
-				data, err := json.Marshal(event)
-				if err != nil {
-					logger.WarnContext(r.Context(), "failed to marshal event",
-						"error", err,
-					)
-					msg.Ack()
-					continue
-				}
-
-				fmt.Fprintf(w, "event: transaction\ndata: %s\n\n", string(data))
-				if flusher, ok := w.(http.Flusher); ok {
-					flusher.Flush()
-				}
-
-				msg.Ack()
-
-				logger.DebugContext(r.Context(), "sent transaction event",
-					"wallet", event.WalletAddress,
-					"signature", event.Signature,
-				)
-
-			case <-r.Context().Done():
-				// Client disconnected
-				logger.DebugContext(r.Context(), "SSE client disconnected (all wallets)",
+					"wallet", walletDesc,
 					"remote_addr", r.RemoteAddr,
 				)
 				return

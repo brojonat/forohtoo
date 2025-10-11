@@ -60,7 +60,7 @@ func (s *Server) Start() error {
 	// SSE streaming endpoints (if SSE publisher is configured)
 	if s.ssePublisher != nil {
 		mux.Handle("GET /api/v1/stream/transactions/{address}", handleStreamTransactions(s.ssePublisher, s.logger))
-		mux.Handle("GET /api/v1/stream/transactions", handleStreamAllTransactions(s.ssePublisher, s.logger))
+		mux.Handle("GET /api/v1/stream/transactions", handleStreamTransactions(s.ssePublisher, s.logger))
 		s.logger.Info("SSE streaming endpoints enabled")
 	} else {
 		s.logger.Warn("SSE publisher not configured, streaming endpoints disabled")
