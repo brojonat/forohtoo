@@ -511,11 +511,23 @@ func reconcileCommand() *cli.Command {
 
 // Helper function to connect to Temporal
 func getTemporalClient(c *cli.Context) (client.Client, error) {
+	// Try to get from parent context first (for global flags)
 	host := c.String("temporal-host")
-	namespace := c.String("temporal-namespace")
-
+	if host == "" && c.App != nil {
+		// Try environment variable directly if flag not found
+		host = os.Getenv("TEMPORAL_HOST")
+	}
 	if host == "" {
-		return nil, fmt.Errorf("temporal-host is required (set TEMPORAL_HOST env var or use --temporal-host)")
+		host = "localhost:7233" // Default value
+	}
+
+	namespace := c.String("temporal-namespace")
+	if namespace == "" && c.App != nil {
+		// Try environment variable directly if flag not found
+		namespace = os.Getenv("TEMPORAL_NAMESPACE")
+	}
+	if namespace == "" {
+		namespace = "default" // Default value
 	}
 
 	temporalClient, err := client.Dial(client.Options{

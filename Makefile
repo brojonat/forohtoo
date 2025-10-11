@@ -31,7 +31,7 @@ test-temporal: ## Run Temporal integration tests (requires temporal)
 .PHONY: test-integration
 test-integration: ## Run all integration tests (requires all services)
 	$(call setup_env, .env.test)
-	RUN_DB_TESTS=1 RUN_TEMPORAL_TESTS=1 go test ./... -v
+	RUN_DB_TESTS=1 RUN_TEMPORAL_TESTS=1 go test ./... -v -p 1
 
 .PHONY: lint
 lint: ## Run linter

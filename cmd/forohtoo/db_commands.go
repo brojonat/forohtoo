@@ -214,7 +214,12 @@ func listTransactionsCommand() *cli.Command {
 
 // Helper function to connect to database
 func getStore(c *cli.Context) (*db.Store, func(), error) {
+	// Try to get from parent context first (for global flags)
 	dbURL := c.String("database-url")
+	if dbURL == "" && c.App != nil {
+		// Try environment variable directly if flag not found
+		dbURL = os.Getenv("DATABASE_URL")
+	}
 	if dbURL == "" {
 		return nil, nil, fmt.Errorf("database-url is required (set DATABASE_URL env var or use --database-url)")
 	}

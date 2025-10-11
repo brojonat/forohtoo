@@ -102,7 +102,7 @@ func TestPauseScheduleCommand(t *testing.T) {
 
 	// Run pause command
 	app := createTemporalTestApp()
-	err := app.Run([]string{"forohtoo", "temporal", "pause-schedule", scheduleID, "--note", "Test pause"})
+	err := app.Run([]string{"forohtoo", "temporal", "pause-schedule", "--note", "Test pause", scheduleID})
 	require.NoError(t, err)
 
 	// Restore stdout
@@ -154,7 +154,7 @@ func TestResumeScheduleCommand(t *testing.T) {
 
 	// Run resume command
 	app := createTemporalTestApp()
-	err = app.Run([]string{"forohtoo", "temporal", "resume-schedule", scheduleID, "--note", "Test resume"})
+	err = app.Run([]string{"forohtoo", "temporal", "resume-schedule", "--note", "Test resume", scheduleID})
 	require.NoError(t, err)
 
 	// Restore stdout
@@ -199,7 +199,7 @@ func TestDeleteScheduleCommand(t *testing.T) {
 
 	// Run delete command with --force to skip confirmation
 	app := createTemporalTestApp()
-	err := app.Run([]string{"forohtoo", "temporal", "delete-schedule", scheduleID, "--force"})
+	err := app.Run([]string{"forohtoo", "temporal", "delete-schedule", "--force", scheduleID})
 	require.NoError(t, err)
 
 	// Restore stdout
@@ -254,7 +254,7 @@ func TestCreateScheduleCommand(t *testing.T) {
 
 	// Run create command
 	app := createTemporalTestApp()
-	err := app.Run([]string{"forohtoo", "temporal", "create-schedule", testAddr, "30s", "--task-queue", "test-queue"})
+	err := app.Run([]string{"forohtoo", "temporal", "create-schedule", "--task-queue", "test-queue", testAddr, "30s"})
 	require.NoError(t, err)
 
 	// Restore stdout
@@ -283,7 +283,12 @@ func TestCreateScheduleCommand(t *testing.T) {
 	assert.Equal(t, "PollWalletWorkflow", action.Workflow)
 	assert.Equal(t, "test-queue", action.TaskQueue)
 	assert.Len(t, action.Args, 1)
-	assert.Equal(t, testAddr, action.Args[0])
+	// Verify the memo contains the wallet address (simpler than decoding Payload)
+	if desc.Memo.Fields != nil {
+		walletAddrPayload := desc.Memo.Fields["wallet_address"]
+		assert.NotNil(t, walletAddrPayload)
+		assert.Contains(t, string(walletAddrPayload.Data), testAddr)
+	}
 
 	// Verify interval
 	require.Len(t, desc.Schedule.Spec.Intervals, 1)
