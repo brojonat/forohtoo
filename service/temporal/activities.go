@@ -212,6 +212,9 @@ func (a *Activities) WriteTransactions(ctx context.Context, input WriteTransacti
 		if txn.Memo != nil {
 			params.Memo = txn.Memo
 		}
+		if txn.FromAddress != nil {
+			params.FromAddress = txn.FromAddress
+		}
 
 		// Set confirmation status based on error
 		if txn.Err != nil {

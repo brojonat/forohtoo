@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -251,13 +252,23 @@ func TestListTransactionsCommand(t *testing.T) {
 	var buf2 bytes.Buffer
 	buf2.ReadFrom(r2)
 
-	output := buf.String() + buf2.String()
+	stdout := buf.String()
+	stderr := buf2.String()
 
-	// Verify output contains transaction data
-	assert.Contains(t, output, "sig1")
-	assert.Contains(t, output, "sig2")
-	assert.Contains(t, output, "sig3")
-	assert.Contains(t, output, "Total: 3")
+	// Verify JSON output contains all transactions (default format is now JSON)
+	assert.Contains(t, stdout, "sig1")
+	assert.Contains(t, stdout, "sig2")
+	assert.Contains(t, stdout, "sig3")
+	assert.Contains(t, stdout, walletAddr)
+
+	// Verify we got valid JSON with 3 transactions
+	var transactions []db.Transaction
+	err = json.Unmarshal([]byte(stdout), &transactions)
+	require.NoError(t, err)
+	assert.Len(t, transactions, 3)
+
+	// Note: "Total:" message only appears in human format, not JSON
+	_ = stderr // stderr not used in JSON mode
 }
 
 func TestListTransactionsCommand_RequiresWallet(t *testing.T) {

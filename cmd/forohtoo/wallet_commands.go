@@ -294,7 +294,7 @@ func awaitCommand() *cli.Command {
 			},
 			&cli.Float64Flag{
 				Name:  "usdc-amount-equal",
-				Usage: "Filter by exact USDC amount (e.g., 0.42 for 0.42 USDC)",
+				Usage: "Filter by exact USDC amount (e.g., 0.42 for 0.42 USDC). Requires USDC_MINT_ADDRESS env var.",
 			},
 			&cli.StringSliceFlag{
 				Name:    "must-jq",
@@ -331,6 +331,15 @@ func awaitCommand() *cli.Command {
 				return fmt.Errorf("must specify at least one filter: --signature, --usdc-amount-equal, or --must-jq")
 			}
 
+			// If using USDC amount filter, require USDC mint address from env
+			var usdcMintAddress string
+			if usdcAmount != 0 {
+				usdcMintAddress = os.Getenv("USDC_MINT_ADDRESS")
+				if usdcMintAddress == "" {
+					return fmt.Errorf("--usdc-amount-equal requires USDC_MINT_ADDRESS environment variable to be set")
+				}
+			}
+
 			// Create logger
 			logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 				Level: slog.LevelError, // Only errors to stderr
@@ -361,6 +370,12 @@ func awaitCommand() *cli.Command {
 
 				// Check USDC amount (USDC has 6 decimals)
 				if usdcAmount != 0 {
+					// Verify it's actually USDC by checking token_type (which contains the mint address)
+					if txn.TokenType != usdcMintAddress {
+						return false
+					}
+
+					// Check amount matches (USDC has 6 decimals)
 					expectedLamports := int64(usdcAmount * 1e6)
 					if txn.Amount != expectedLamports {
 						return false

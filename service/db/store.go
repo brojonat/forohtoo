@@ -36,6 +36,7 @@ type Transaction struct {
 	Memo               *string
 	ConfirmationStatus string
 	CreatedAt          time.Time
+	FromAddress        *string // source wallet (sender)
 }
 
 // CreateTransactionParams contains the parameters for creating a transaction.
@@ -48,6 +49,7 @@ type CreateTransactionParams struct {
 	TokenMint          *string
 	Memo               *string
 	ConfirmationStatus string
+	FromAddress        *string
 }
 
 // ListTransactionsByWalletParams contains pagination parameters.
@@ -76,6 +78,7 @@ func (s *Store) CreateTransaction(ctx context.Context, params CreateTransactionP
 		TokenMint:          pgtextFromStringPtr(params.TokenMint),
 		Memo:               pgtextFromStringPtr(params.Memo),
 		ConfirmationStatus: params.ConfirmationStatus,
+		FromAddress:        pgtextFromStringPtr(params.FromAddress),
 	}
 
 	result, err := s.q.CreateTransaction(ctx, sqlcParams)
@@ -304,6 +307,7 @@ func dbTransactionToDomain(db *dbgen.Transaction) *Transaction {
 		Memo:               stringPtrFromPgtext(db.Memo),
 		ConfirmationStatus: db.ConfirmationStatus,
 		CreatedAt:          db.CreatedAt.Time,
+		FromAddress:        stringPtrFromPgtext(db.FromAddress),
 	}
 }
 

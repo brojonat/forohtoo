@@ -24,10 +24,9 @@ A Go-based service and client library for polling Solana wallets and integrating
                                          │ HTTP/SSE
                                          ▼
                               ┌─────────────────────┐
-                              │  WEB CLIENTS        │
+                              │  CLIENTS            │
                               │  - REST API         │
-                              │  - SSE Streams      │
-                              │  - Browser/Mobile   │
+                              │  - SSE              │
                               └─────────────────────┘
 ```
 
@@ -579,7 +578,17 @@ forohtoo nats inspect-stream
 
 # Database inspection
 forohtoo db list-wallets
-forohtoo db list-transactions WALLET_ADDRESS
+# List transactions (outputs JSON by default, includes memo, token mint, amounts)
+forohtoo db list-transactions --wallet WALLET_ADDRESS
+
+# Limit results
+forohtoo db list-transactions --wallet WALLET_ADDRESS --limit 10
+
+# Human-readable output (for interactive use)
+forohtoo db list-transactions --wallet WALLET_ADDRESS --format human
+
+# Pipe JSON to jq for filtering
+forohtoo db list-transactions --wallet WALLET_ADDRESS | jq '.[] | select(.memo != null)'
 
 # Temporal schedule management
 forohtoo temporal list-schedules
@@ -611,7 +620,7 @@ See [TESTING.md](./TESTING.md) for detailed testing instructions.
 - Issue the following client command to subscribe to the wallet:
 
 ```bash
-forohtoo wallet add DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK
+forohtoo wallet add $INCENTIVIZETHIS_ESCROW_WALLET
 ```
 
 - You should start to see transactions flowing in if by some miracle IncentivizeThis is paying out. If traffic is low, you can just send yourself some USDC and you should see the transaction in your browser. Cool, you should be convinced the system is working.
@@ -621,7 +630,7 @@ forohtoo wallet add DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK
 ```bash
 forohtoo wallet await --usdc-amount-equal 0.42 \
   --must-jq '. | contains({workflow_id: "some-id"})' \
-  DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK
+  $INCENTIVIZETHIS_ESCROW_WALLET
 ```
 
 This should block until someone sends 0.42 USDC to the IncentivizeThis escrow wallet with a memo that can be parsed as JSON and contains a workflow_id field that matches the arbitrary workflow_id we provided. Now, you can use the QR code to fund the bounty. This transaction will be detected by the `await` command, which should now unblock!
@@ -631,7 +640,7 @@ This should block until someone sends 0.42 USDC to the IncentivizeThis escrow wa
 - `--usdc-amount-equal 0.42` checks that the transaction amount equals exactly 0.42 USDC (420000 lamports)
 - `--must-jq '. | contains({workflow_id: "some-id"})'` runs a jq filter on the memo (parsed as JSON) that checks if it contains a workflow_id field matching "some-id"
 - You can specify multiple `--must-jq` flags - ALL must evaluate to true for the transaction to match
-- The matcher function is a closure that combines all these conditions with AND logic
+- The matcher function is a closure that combines all these conditions with AND logic. This is not a bad example of how to use the client yourself!
 
 ## License
 

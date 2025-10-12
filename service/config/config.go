@@ -22,6 +22,13 @@ type Config struct {
 
 	// Solana configuration
 	SolanaRPCURL string
+	// USDCMintAddress is the SPL token mint address for USDC on the current network.
+	// This is network-dependent:
+	// - Mainnet: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+	// - Devnet: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+	// - Testnet: CpMah17kQEL2wqyMKt3mZBdTnZbkbfx4nqmQMFDP5vwp
+	// Optional: only required if using --usdc-amount-equal CLI flag
+	USDCMintAddress string
 
 	// Temporal configuration
 	TemporalHost      string
@@ -57,6 +64,9 @@ func Load() (*Config, error) {
 	if cfg.SolanaRPCURL == "" {
 		errs = append(errs, fmt.Errorf("SOLANA_RPC_URL is required"))
 	}
+
+	// USDC mint address (optional, network-dependent)
+	cfg.USDCMintAddress = os.Getenv("USDC_MINT_ADDRESS")
 
 	// Temporal configuration
 	cfg.TemporalHost = getEnvOrDefault("TEMPORAL_HOST", "localhost:7233")

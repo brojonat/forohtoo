@@ -142,6 +142,11 @@ func listTransactionsCommand() *cli.Command {
 				Usage:   "Limit number of transactions",
 				Value:   50,
 			},
+			&cli.StringFlag{
+				Name:  "format",
+				Usage: "Output format: json (default) or human",
+				Value: "json",
+			},
 		},
 		Action: func(c *cli.Context) error {
 			store, closer, err := getStore(c)
@@ -180,32 +185,52 @@ func listTransactionsCommand() *cli.Command {
 				return fmt.Errorf("please specify --wallet flag to list transactions")
 			}
 
-			if c.Bool("json") {
+			format := c.String("format")
+
+			// Default to JSON output (following project philosophy: stdout = JSON)
+			if format == "json" {
 				return outputJSON(transactions)
 			}
 
-			// Pretty table output
-			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "SIGNATURE\tWALLET\tBLOCK TIME\tSLOT\tAMOUNT")
-			for _, tx := range transactions {
-				sigDisplay := tx.Signature
-				if len(sigDisplay) > 16 {
-					sigDisplay = sigDisplay[:16] + "..."
-				}
-				walletDisplay := tx.WalletAddress
-				if len(walletDisplay) > 16 {
-					walletDisplay = walletDisplay[:16] + "..."
-				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\n",
-					sigDisplay,
-					walletDisplay,
-					tx.BlockTime.Format("2006-01-02 15:04:05"),
-					tx.Slot,
-					tx.Amount,
-				)
+			// Human-readable output (to stdout, per user preference)
+			if len(transactions) == 0 {
+				fmt.Println("No transactions found")
+				return nil
 			}
-			w.Flush()
 
+			for i, tx := range transactions {
+				if i > 0 {
+					fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+				}
+
+				fmt.Printf("Signature:      %s\n", tx.Signature)
+				fmt.Printf("From:           %s\n", formatOptionalAddress(tx.FromAddress))
+				fmt.Printf("To (monitored): %s\n", tx.WalletAddress)
+				fmt.Printf("Block Time:     %s\n", tx.BlockTime.Format(time.RFC3339))
+				fmt.Printf("Slot:           %d\n", tx.Slot)
+
+				// Format amount based on whether it's SOL or a token
+				if tx.TokenMint != nil && *tx.TokenMint != "" {
+					fmt.Printf("Amount:         %d (token units)\n", tx.Amount)
+					fmt.Printf("Token Mint:     %s\n", *tx.TokenMint)
+				} else {
+					// Native SOL - convert lamports to SOL for readability
+					solAmount := float64(tx.Amount) / 1e9
+					fmt.Printf("Amount:         %.9f SOL (%d lamports)\n", solAmount, tx.Amount)
+					fmt.Printf("Token Mint:     (native SOL)\n")
+				}
+
+				if tx.Memo != nil && *tx.Memo != "" {
+					fmt.Printf("Memo:           %s\n", *tx.Memo)
+				} else {
+					fmt.Printf("Memo:           (none)\n")
+				}
+
+				fmt.Printf("Status:         %s\n", tx.ConfirmationStatus)
+				fmt.Printf("Created At:     %s\n", tx.CreatedAt.Format(time.RFC3339))
+			}
+
+			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 			fmt.Fprintf(os.Stderr, "\nTotal: %d transactions\n", len(transactions))
 			return nil
 		},
@@ -245,4 +270,12 @@ func outputJSON(v interface{}) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
+}
+
+// Helper function to format optional address
+func formatOptionalAddress(addr *string) string {
+	if addr != nil && *addr != "" {
+		return *addr
+	}
+	return "(unknown)"
 }

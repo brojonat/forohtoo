@@ -42,6 +42,9 @@ func NewClient(rpcClient RPCClient, logger *slog.Logger) *Client {
 // GetTransactionsSince polls for new transactions after the given signature.
 // If lastSignature is nil, it returns the most recent transactions.
 // Returns transactions in descending order (newest first).
+//
+// This method fetches both signature metadata and full transaction details,
+// parsing amounts, token mints, and memos from the transaction instructions.
 func (c *Client) GetTransactionsSince(
 	ctx context.Context,
 	params GetTransactionsSinceParams,
@@ -64,14 +67,50 @@ func (c *Client) GetTransactionsSince(
 		return nil, err
 	}
 
-	// Convert RPC signatures to domain transactions
+	c.logger.DebugContext(ctx, "fetched transaction signatures",
+		"wallet", params.Wallet.String(),
+		"count", len(signatures),
+	)
+
+	// Fetch and parse full transaction details for each signature
 	transactions := make([]*Transaction, 0, len(signatures))
 	for _, sig := range signatures {
-		txn := signatureToDomain(sig)
+		// Fetch full transaction details
+		txnOpts := &rpc.GetTransactionOpts{
+			Encoding:                       solana.EncodingBase64,
+			MaxSupportedTransactionVersion: &[]uint64{0}[0], // Support versioned transactions
+		}
+
+		result, err := c.rpc.GetTransaction(ctx, sig.Signature, txnOpts)
+		if err != nil {
+			// Log warning but continue with other transactions
+			// Transaction might be pruned or not available
+			c.logger.WarnContext(ctx, "failed to get transaction details, using metadata only",
+				"signature", sig.Signature.String(),
+				"error", err,
+			)
+			// Fall back to metadata-only transaction
+			transactions = append(transactions, signatureToDomain(sig))
+			continue
+		}
+
+		// Parse transaction to extract amount, token mint, and memo
+		txn, err := parseTransactionFromResult(sig, result)
+		if err != nil {
+			// Log warning but continue with other transactions
+			c.logger.WarnContext(ctx, "failed to parse transaction, using metadata only",
+				"signature", sig.Signature.String(),
+				"error", err,
+			)
+			// Fall back to metadata-only transaction
+			transactions = append(transactions, signatureToDomain(sig))
+			continue
+		}
+
 		transactions = append(transactions, txn)
 	}
 
-	c.logger.DebugContext(ctx, "fetched transactions",
+	c.logger.InfoContext(ctx, "fetched and parsed transactions",
 		"wallet", params.Wallet.String(),
 		"count", len(transactions),
 	)
