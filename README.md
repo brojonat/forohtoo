@@ -5,21 +5,21 @@ A Go-based service and client library for polling Solana wallets and integrating
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────────────┐
-│  BACKEND SERVICE                                        │
-│                                                         │
-│  ┌─────────────┐    NATS      ┌──────────────┐        │
-│  │   Worker    │───────────────▶│ HTTP Server │        │
-│  │             │  (internal)    │             │        │
-│  │ - Poll RPC  │                │ - REST API  │        │
-│  │ - Write DB  │                │ - SSE       │        │
-│  │ - Pub NATS  │                │             │        │
-│  └─────────────┘                └──────────────┘        │
-│         │                              │                │
-│         │                              │                │
-│    TimescaleDB                         │                │
-│   (persistence)                        │                │
-└────────────────────────────────────────┼────────────────┘
+┌──────────────────────────────────────────────────┐
+│  BACKEND SERVICE                                 │
+│                                                  │
+│  ┌─────────────┐     NATS       ┌─────────────┐  │
+│  │   Worker    │───────────────▶│ HTTP Server │  │
+│  │             │  (internal)    │             │  │
+│  │ - Poll RPC  │                │ - REST API  │  │
+│  │ - Write DB  │                │ - SSE       │  │
+│  │ - Pub NATS  │                │             │  │
+│  └─────────────┘                └─────────────┘  │
+│         │                              │         │
+│         │                              │         │
+│    TimescaleDB                         │         │
+│   (persistence)                        │         │
+└────────────────────────────────────────┼─────────┘
                                          │
                                          │ HTTP/SSE
                                          ▼
