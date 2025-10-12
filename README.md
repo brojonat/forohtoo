@@ -32,6 +32,7 @@ A Go-based service and client library for polling Solana wallets and integrating
 ```
 
 **Key Design Decisions:**
+
 - **NATS is internal**: Not exposed to clients, simplifying security
 - **SSE for streaming**: Clients use Server-Sent Events over HTTP
 - **HTTP-only clients**: No need for NATS client libraries
@@ -190,12 +191,14 @@ make run-server
 Listens on `:8080` by default. Provides endpoints for:
 
 **Wallet Management:**
+
 - `POST /api/v1/wallets` - Register a wallet for polling
 - `GET /api/v1/wallets` - List all registered wallets
 - `GET /api/v1/wallets/{address}` - Get wallet details
 - `DELETE /api/v1/wallets/{address}` - Unregister a wallet
 
 **Transaction Streaming (SSE):**
+
 - `GET /api/v1/stream/transactions/{address}` - Stream transactions for a specific wallet
 - `GET /api/v1/stream/transactions` - Stream transactions for all wallets
 
@@ -212,6 +215,7 @@ make run-worker
 ```
 
 The worker executes `PollWalletWorkflow` on schedule, which:
+
 - Polls Solana RPC for new transactions
 - Writes transactions to TimescaleDB
 - Updates wallet poll time
@@ -229,6 +233,7 @@ make run-worker
 ```
 
 For production, deploy as separate Kubernetes deployments to scale independently:
+
 - Scale API servers based on request load
 - Scale workers based on number of wallets being polled
 
@@ -315,6 +320,7 @@ make k8s-delete
 The deployment consists of:
 
 - **Server Deployment** (`forohtoo-server`):
+
   - 1 replica (scale up based on API load)
   - Exposes ClusterIP service on port 80 → 8080
   - Health checks on `/health` endpoint
@@ -326,11 +332,13 @@ The deployment consists of:
   - Resources: 256Mi-1Gi RAM, 200m-1000m CPU
 
 Both deployments use:
+
 - **Same Docker image** with different commands (`/server` vs `/worker`)
 - **Separate secrets** from `.env.server.prod` and `.env.worker.prod`
 - **Image pull secret** (`regcred`) for private registries
 
 **Scaling Strategies:**
+
 - **API Server**: Scale based on HTTP request rate, CPU, or memory
 - **Worker**: Scale based on number of active wallets or Temporal task queue depth
 - Temporal handles task distribution across multiple worker instances automatically
@@ -343,25 +351,30 @@ For production applications, use the HTTP Server-Sent Events endpoints:
 
 ```javascript
 // Stream transactions for a specific wallet
-const eventSource = new EventSource('http://localhost:8080/api/v1/stream/transactions/YOUR_WALLET');
+const eventSource = new EventSource(
+  "http://localhost:8080/api/v1/stream/transactions/YOUR_WALLET"
+);
 
-eventSource.addEventListener('connected', (e) => {
-  console.log('Connected:', JSON.parse(e.data));
+eventSource.addEventListener("connected", (e) => {
+  console.log("Connected:", JSON.parse(e.data));
 });
 
-eventSource.addEventListener('transaction', (e) => {
+eventSource.addEventListener("transaction", (e) => {
   const txn = JSON.parse(e.data);
-  console.log('Transaction:', txn);
+  console.log("Transaction:", txn);
   // Handle transaction event
 });
 
 // Stream all wallet transactions
-const allSource = new EventSource('http://localhost:8080/api/v1/stream/transactions');
+const allSource = new EventSource(
+  "http://localhost:8080/api/v1/stream/transactions"
+);
 ```
 
 See `examples/sse-client.html` for a complete browser-based demo.
 
 **Benefits of SSE:**
+
 - Standard browser API (EventSource)
 - Works with standard HTTP infrastructure
 - Automatic reconnection
@@ -387,6 +400,7 @@ forohtoo sse stream YOUR_WALLET_ADDRESS --server http://production-server:8080
 ```
 
 **Benefits:**
+
 - No browser required for debugging
 - Same SSE endpoints as browser clients
 - Human-friendly or JSON output
@@ -397,6 +411,7 @@ forohtoo sse stream YOUR_WALLET_ADDRESS --server http://production-server:8080
 The **client.Await()** method is the core feature for payment gating in Temporal workflows. It connects to SSE and blocks until a transaction matching your custom criteria arrives, enabling workflows to pause until payment is confirmed.
 
 **How It Works:**
+
 - Connects to SSE stream for a wallet
 - Calls your matcher function on every transaction
 - Returns when matcher returns `true`
@@ -404,6 +419,7 @@ The **client.Await()** method is the core feature for payment gating in Temporal
 - Client-side filtering (any logic you want)
 
 **Go Client Library:**
+
 ```go
 import "github.com/brojonat/forohtoo/client"
 
@@ -442,18 +458,24 @@ log.Printf("Payment received: %s (%.4f SOL)", txn.Signature, float64(txn.Amount)
 ```
 
 **CLI Tool:**
+
 ```bash
-# Block until transaction with workflow_id arrives
-forohtoo client await YOUR_WALLET --workflow-id payment-workflow-123
+# Block until transaction with workflow_id arrives (using jq filter)
+forohtoo wallet await --must-jq '. | contains({workflow_id: "payment-workflow-123"})' \
+  YOUR_WALLET
 
 # Block until specific signature arrives
-forohtoo client await YOUR_WALLET --signature SIG_HERE
+forohtoo wallet await --signature SIG_HERE YOUR_WALLET
 
 # JSON output for automation
-forohtoo client await YOUR_WALLET --workflow-id xyz --json
+forohtoo wallet await --must-jq '. | contains({workflow_id: "xyz"})' \
+  --json \
+  YOUR_WALLET
 
-# Custom timeout (via context in code, flag in CLI)
-forohtoo client await YOUR_WALLET --workflow-id xyz --timeout 10m
+# Custom timeout
+forohtoo wallet await --must-jq '. | contains({workflow_id: "xyz"})' \
+  --timeout 10m \
+  YOUR_WALLET
 ```
 
 **Use Case - Temporal Workflow:**
@@ -495,6 +517,7 @@ func PaymentGatedWorkflow(ctx workflow.Context, order Order) error {
 ```
 
 **Benefits:**
+
 - **Flexible Filtering**: Callback can implement ANY matching logic
 - **SSE-Based**: Robust through proxies and load balancers
 - **Auto-Reconnect**: SSE handles connection drops automatically
@@ -503,6 +526,7 @@ func PaymentGatedWorkflow(ctx workflow.Context, order Order) error {
 - **Simple Integration**: Just HTTP/SSE - no NATS client required
 
 **Security Considerations:**
+
 - Consider adding authentication (JWT, API keys) to SSE endpoints
 - Use HTTPS in production
 - Validate memo format to prevent injection attacks
@@ -539,6 +563,7 @@ forohtoo nats smoke-test --json
 ```
 
 The smoke test:
+
 1. Connects to NATS JetStream
 2. Subscribes to transaction events for a busy wallet
 3. Waits for transaction events (default: 30s)
@@ -578,6 +603,40 @@ make test-integration
 
 See [TESTING.md](./TESTING.md) for detailed testing instructions.
 
+### Worked Example: Monitoring IncentivizeThis Escrow Wallet for USDC
+
+- First, run the server and worker locally
+- Then, run the SSE client in your browser
+- You shouldn't see any transactions flowing in yet (provided the server isn't subscribed to any wallets).
+- Issue the following client command to subscribe to the wallet:
+
+```bash
+forohtoo wallet add DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK
+```
+
+- You should start to see transactions flowing in if by some miracle IncentivizeThis is paying out. If traffic is low, you can just send yourself some USDC and you should see the transaction in your browser. Cool, you should be convinced the system is working.
+- Now, create a bounty, but don't fund it yet. Note the workflow_id, and keep that QR code handy. Let's say for example's sake, the bounty will be for 0.42 USDC, and the workflow_id is "some-id".
+- Next, run the `await` command to block until a transaction matching the IncentivizeThis criteria arrives:
+
+```bash
+forohtoo wallet await --usdc-amount-equal 0.42 \
+  --must-jq '. | contains({workflow_id: "some-id"})' \
+  DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK
+```
+
+This should block until someone sends 0.42 USDC to the IncentivizeThis escrow wallet with a memo that can be parsed as JSON and contains a workflow_id field that matches the arbitrary workflow_id we provided. Now, you can use the QR code to fund the bounty. This transaction will be detected by the `await` command, which should now unblock!
+
+**How it works:**
+
+- `--usdc-amount-equal 0.42` checks that the transaction amount equals exactly 0.42 USDC (420000 lamports)
+- `--must-jq '. | contains({workflow_id: "some-id"})'` runs a jq filter on the memo (parsed as JSON) that checks if it contains a workflow_id field matching "some-id"
+- You can specify multiple `--must-jq` flags - ALL must evaluate to true for the transaction to match
+- The matcher function is a closure that combines all these conditions with AND logic
+
 ## License
 
 (To be determined)
+
+```
+
+```

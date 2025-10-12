@@ -4,8 +4,11 @@ go 1.25.1
 
 require (
 	github.com/gagliardetto/solana-go v1.14.0
+	github.com/itchyny/gojq v0.12.17
 	github.com/jackc/pgx/v5 v5.7.6
+	github.com/nats-io/nats.go v1.46.1
 	github.com/stretchr/testify v1.11.1
+	github.com/urfave/cli/v2 v2.27.7
 	go.temporal.io/sdk v1.37.0
 )
 
@@ -24,6 +27,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0 // indirect
+	github.com/itchyny/timefmt-go v0.1.6 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
@@ -31,13 +35,12 @@ require (
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
 	github.com/mattn/go-colorable v0.1.4 // indirect
-	github.com/mattn/go-isatty v0.0.11 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/go-testing-interface v1.14.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mostynb/zstdpool-freelist v0.0.0-20201229113212-927304c0c3b1 // indirect
 	github.com/mr-tron/base58 v1.2.0 // indirect
-	github.com/nats-io/nats.go v1.46.1 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/nexus-rpc/sdk-go v0.3.0 // indirect
@@ -47,7 +50,6 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/urfave/cli/v2 v2.27.7 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	go.mongodb.org/mongo-driver v1.12.2 // indirect
 	go.temporal.io/api v1.53.0 // indirect

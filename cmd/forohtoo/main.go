@@ -62,8 +62,8 @@ Use this CLI to inspect database state, view Temporal schedules, and debug workf
 			},
 			// SSE streaming commands
 			sseCommands(),
-			// Client commands (HTTP API)
-			clientCommands(),
+			// Wallet transaction monitoring commands
+			walletCommands(),
 			// Server utility commands
 			{
 				Name:  "server",
