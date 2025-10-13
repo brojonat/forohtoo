@@ -185,7 +185,7 @@
     <script>
       let eventSource = null;
       let transactionCount = 0;
-      const SERVER_URL = "http://localhost:8080";
+      const SERVER_URL = window.location.origin;
 
       function updateStatus(status, message) {
         const statusEl = document.getElementById("status");
