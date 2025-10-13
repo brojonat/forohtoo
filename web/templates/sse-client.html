@@ -223,10 +223,20 @@
         const metaItems = [];
         metaItems.push(`
                 <div class="meta-item">
-                    <div class="meta-label">Wallet</div>
+                    <div class="meta-label">Wallet (To)</div>
                     <div class="signature">${txn.wallet_address}</div>
                 </div>
             `);
+
+        if (txn.from_address) {
+          metaItems.push(`
+                    <div class="meta-item">
+                        <div class="meta-label">From</div>
+                        <div class="signature">${txn.from_address}</div>
+                    </div>
+                `);
+        }
+
         metaItems.push(`
                 <div class="meta-item">
                     <div class="meta-label">Slot</div>
@@ -249,7 +259,7 @@
         if (txn.token_type) {
           metaItems.push(`
                     <div class="meta-item">
-                        <div class="meta-label">Token</div>
+                        <div class="meta-label">Token Mint</div>
                         <div class="signature">${txn.token_type}</div>
                     </div>
                 `);
@@ -259,19 +269,23 @@
           metaItems.push(`
                     <div class="meta-item">
                         <div class="meta-label">Memo</div>
-                        <div>${txn.memo}</div>
+                        <div style="word-break: break-word;">${txn.memo}</div>
                     </div>
                 `);
         }
 
+        metaItems.push(`
+                <div class="meta-item">
+                    <div class="meta-label">Published</div>
+                    <div>${formatDate(txn.published_at)}</div>
+                </div>
+            `);
+
         txnEl.innerHTML = `
                 <div class="transaction-header">
                     <div class="amount">${formatLamports(txn.amount)}</div>
-                    <div style="font-size: 12px; color: #999;">${formatDate(
-                      txn.published_at
-                    )}</div>
+                    <div class="signature">Sig: ${txn.signature.substring(0, 20)}...</div>
                 </div>
-                <div class="signature">Signature: ${txn.signature}</div>
                 <div class="meta">
                     ${metaItems.join("")}
                 </div>

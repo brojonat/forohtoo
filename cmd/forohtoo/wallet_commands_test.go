@@ -414,7 +414,7 @@ func TestWalletListCommand(t *testing.T) {
 	}
 
 	err := app.Run([]string{"test", "wallet", "list", "--server", server.URL})
-	
+
 	w.Close()
 	os.Stdout = oldStdout
 
@@ -426,11 +426,19 @@ func TestWalletListCommand(t *testing.T) {
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	if !bytes.Contains([]byte(output), []byte("wallet1")) {
-		t.Errorf("expected wallet1 in output, got: %s", output)
+	// Should output JSON array by default
+	var wallets []map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &wallets); err != nil {
+		t.Fatalf("expected JSON array output, got: %s", output)
 	}
-	if !bytes.Contains([]byte(output), []byte("wallet2")) {
-		t.Errorf("expected wallet2 in output, got: %s", output)
+
+	if len(wallets) != 2 {
+		t.Errorf("expected 2 wallets, got: %d", len(wallets))
+	}
+
+	// Verify wallet structure
+	if wallets[0]["address"] != "wallet1" {
+		t.Errorf("expected first wallet address to be wallet1, got: %v", wallets[0]["address"])
 	}
 }
 
@@ -473,8 +481,14 @@ func TestWalletListCommand_Empty(t *testing.T) {
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	if !bytes.Contains([]byte(output), []byte("No wallets registered")) {
-		t.Errorf("expected 'No wallets registered' message, got: %s", output)
+	// Should output JSON array by default, even for empty list
+	var wallets []map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &wallets); err != nil {
+		t.Fatalf("expected JSON array output, got: %s", output)
+	}
+
+	if len(wallets) != 0 {
+		t.Errorf("expected 0 wallets, got: %d", len(wallets))
 	}
 }
 

@@ -190,10 +190,10 @@ func (c *Client) GetTransactionsSince(
 }
 
 // GetTransaction fetches and parses a specific transaction by signature.
-func (c *Client) GetTransaction(
-	ctx context.Context,
-	signature solana.Signature,
-) (*Transaction, error) {
-	// TODO: implement
-	return nil, nil
-}
+// func (c *Client) GetTransaction(
+// 	ctx context.Context,
+// 	signature solana.Signature,
+// ) (*Transaction, error) {
+// 	// TODO: implement
+// 	return nil, nil
+// }

@@ -216,7 +216,7 @@ func walletListCommand() *cli.Command {
 	return &cli.Command{
 		Name:    "list",
 		Aliases: []string{"ls"},
-		Usage:   "List all registered wallets",
+		Usage:   "List all registered wallets (outputs JSON by default)",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "server",
@@ -226,14 +226,14 @@ func walletListCommand() *cli.Command {
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
 			&cli.BoolFlag{
-				Name:    "json",
-				Aliases: []string{"j"},
-				Usage:   "Output as JSON",
+				Name:    "table",
+				Aliases: []string{"t"},
+				Usage:   "Output as human-readable table instead of JSON",
 			},
 		},
 		Action: func(c *cli.Context) error {
 			serverURL := c.String("server")
-			jsonOutput := c.Bool("json")
+			tableOutput := c.Bool("table")
 
 			logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 				Level: slog.LevelError,
@@ -246,10 +246,12 @@ func walletListCommand() *cli.Command {
 				return fmt.Errorf("failed to list wallets: %w", err)
 			}
 
-			if jsonOutput {
+			// Default to JSON output
+			if !tableOutput {
 				data, _ := json.MarshalIndent(wallets, "", "  ")
 				fmt.Println(string(data))
 			} else {
+				// Table output
 				if len(wallets) == 0 {
 					fmt.Println("No wallets registered")
 					return nil

@@ -39,11 +39,10 @@ func getUSDCAssociatedTokenAccount(walletAddress string) string {
 // It is triggered by a Temporal schedule at a configured interval (e.g., every 30 seconds).
 //
 // The workflow performs these steps:
-// 1. Poll Solana RPC for new transactions (PollSolana activity)
-// 2. Write transactions to TimescaleDB (WriteTransactions activity)
-// 3. Return summary of what was polled
-//
-// Note: Transaction publishing to NATS will be added in a future activity.
+// 1. Get existing transaction signatures from the database (GetExistingTransactionSignatures activity)
+// 2. Poll Solana RPC for new transactions (PollSolana activity)
+// 3. Write transactions to TimescaleDB and publish to NATS (WriteTransactions activity)
+// 4. Return summary of what was polled
 func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalletResult, error) {
 	logger := workflow.GetLogger(ctx)
 	logger.Info("PollWalletWorkflow started", "address", input.Address)
@@ -228,12 +227,7 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 	// Update result with newest signature for next poll
 	result.LastSignatureSeen = pollResult.NewestSignature
 
-	// FIXME:TODO: Step 4: Publish transactions to NATS (future activity)
-	// publishInput := PublishTransactionsInput{
-	//     WalletAddress: input.Address,
-	//     Transactions:  pollResult.Transactions,
-	// }
-	// err = workflow.ExecuteActivity(ctx, a.PublishTransactions, publishInput).Get(ctx, nil)
+	// Note: NATS publishing happens inside WriteTransactions activity (see activities.go)
 
 	logger.Info("PollWalletWorkflow completed successfully",
 		"address", input.Address,
