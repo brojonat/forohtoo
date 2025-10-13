@@ -3,6 +3,8 @@ package solana
 import (
 	"context"
 	"log/slog"
+	"strings"
+	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -39,6 +41,14 @@ func NewClient(rpcClient RPCClient, logger *slog.Logger) *Client {
 	}
 }
 
+// GetTransactionsSinceParams contains parameters for fetching transactions.
+type GetTransactionsSinceParams struct {
+	Wallet             solana.PublicKey
+	LastSignature      *solana.Signature
+	Limit              int
+	ExistingSignatures []string
+}
+
 // GetTransactionsSince polls for new transactions after the given signature.
 // If lastSignature is nil, it returns the most recent transactions.
 // Returns transactions in descending order (newest first).
@@ -72,20 +82,79 @@ func (c *Client) GetTransactionsSince(
 		"count", len(signatures),
 	)
 
+	// Create a lookup map for existing signatures to avoid reprocessing.
+	existingSigs := make(map[string]struct{})
+	for _, sig := range params.ExistingSignatures {
+		existingSigs[sig] = struct{}{}
+	}
+
 	// Fetch and parse full transaction details for each signature
 	transactions := make([]*Transaction, 0, len(signatures))
 	for _, sig := range signatures {
-		// Fetch full transaction details
-		txnOpts := &rpc.GetTransactionOpts{
-			Encoding:                       solana.EncodingBase64,
-			MaxSupportedTransactionVersion: &[]uint64{0}[0], // Support versioned transactions
+
+		// Skip if we have already processed this transaction.
+		if _, exists := existingSigs[sig.Signature.String()]; exists {
+			c.logger.DebugContext(ctx, "skipping already processed transaction",
+				"signature", sig.Signature.String(),
+			)
+			continue
 		}
 
-		result, err := c.rpc.GetTransaction(ctx, sig.Signature, txnOpts)
+		// Add a small delay to avoid overwhelming the RPC endpoint.
+		time.Sleep(1 * time.Second)
+
+		var result *rpc.GetTransactionResult
+		var err error
+
+		// Retry logic for fetching transaction details
+		for attempt := range 10 {
+			// Fetch full transaction details with support for versioned transactions
+			txnOpts := &rpc.GetTransactionOpts{
+				Encoding:                       solana.EncodingBase64,
+				MaxSupportedTransactionVersion: &[]uint64{0}[0],
+			}
+			result, err = c.rpc.GetTransaction(ctx, sig.Signature, txnOpts)
+			if err == nil {
+				break // Success
+			}
+
+			// Handle rate limiting (429 Too Many Requests)
+			if strings.Contains(err.Error(), "429") {
+				c.logger.WarnContext(ctx, "rate limited, sleeping before retry",
+					"signature", sig.Signature.String(),
+					"attempt", attempt+1,
+				)
+				time.Sleep(5 * time.Second)
+				continue // Sleep and try again
+			}
+
+			// Handle parsing errors for legacy transactions
+			if strings.Contains(err.Error(), "expects '\"' or 'n', but found '{'") {
+				c.logger.WarnContext(ctx, "could not parse as versioned tx, retrying as legacy",
+					"signature", sig.Signature.String(),
+				)
+
+				// Retry immediately without version support
+				legacyTxnOpts := &rpc.GetTransactionOpts{
+					Encoding: solana.EncodingBase64,
+				}
+				result, err = c.rpc.GetTransaction(ctx, sig.Signature, legacyTxnOpts)
+				if err == nil {
+					break // Success on fallback
+				}
+			}
+
+			c.logger.WarnContext(ctx, "failed to get transaction on attempt",
+				"signature", sig.Signature.String(),
+				"attempt", attempt+1,
+				"error", err,
+			)
+		}
+
 		if err != nil {
 			// Log warning but continue with other transactions
-			// Transaction might be pruned or not available
-			c.logger.WarnContext(ctx, "failed to get transaction details, using metadata only",
+			// Transaction might be pruned or not available after retries
+			c.logger.WarnContext(ctx, "failed to get transaction details after retries, using metadata only",
 				"signature", sig.Signature.String(),
 				"error", err,
 			)

@@ -1,0 +1,26 @@
+root = "."
+testdata_dir = "testdata"
+tmp_dir = "tmp"
+
+[build]
+bin = "./bin/forohtoo"
+cmd = "go build -o ./bin/forohtoo ./cmd/forohtoo"
+delay = 1000
+exclude_dir = ["assets", "tmp", "vendor", "testdata", "examples", "scripts", "logs"]
+exclude_regex = ["_test.go"]
+include_dir = ["cmd/forohtoo", "service"]
+include_ext = ["go"]
+log = "logs/air-cli.log"
+
+[color]
+build = "yellow"
+main = "magenta"
+runner = "green"
+watcher = "cyan"
+
+[log]
+main_only = false
+time = false
+
+[misc]
+clean_on_exit = false

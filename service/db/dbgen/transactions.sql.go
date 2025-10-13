@@ -139,6 +139,37 @@ func (q *Queries) GetTransaction(ctx context.Context, signature string) (Transac
 	return i, err
 }
 
+const getTransactionSignaturesByWallet = `-- name: GetTransactionSignaturesByWallet :many
+SELECT signature FROM transactions
+WHERE wallet_address = $1
+AND ($2::timestamptz IS NULL OR block_time > $2)
+`
+
+type GetTransactionSignaturesByWalletParams struct {
+	WalletAddress string             `json:"wallet_address"`
+	Since         pgtype.Timestamptz `json:"since"`
+}
+
+func (q *Queries) GetTransactionSignaturesByWallet(ctx context.Context, arg GetTransactionSignaturesByWalletParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, getTransactionSignaturesByWallet, arg.WalletAddress, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var signature string
+		if err := rows.Scan(&signature); err != nil {
+			return nil, err
+		}
+		items = append(items, signature)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTransactionsSince = `-- name: GetTransactionsSince :many
 SELECT signature, wallet_address, slot, block_time, amount, token_mint, memo, confirmation_status, created_at, from_address FROM transactions
 WHERE wallet_address = $1

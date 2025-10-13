@@ -19,20 +19,21 @@ type PollWalletInput struct {
 
 // PollWalletResult contains the result of polling a wallet.
 type PollWalletResult struct {
-	Address            string    `json:"address"`
-	TransactionCount   int       `json:"transaction_count"`
-	NewestSignature    *string   `json:"newest_signature,omitempty"`
-	OldestSignature    *string   `json:"oldest_signature,omitempty"`
-	PollTime           time.Time `json:"poll_time"`
-	LastSignatureSeen  *string   `json:"last_signature_seen,omitempty"`
-	Error              *string   `json:"error,omitempty"`
+	Address           string    `json:"address"`
+	TransactionCount  int       `json:"transaction_count"`
+	NewestSignature   *string   `json:"newest_signature,omitempty"`
+	OldestSignature   *string   `json:"oldest_signature,omitempty"`
+	PollTime          time.Time `json:"poll_time"`
+	LastSignatureSeen *string   `json:"last_signature_seen,omitempty"`
+	Error             *string   `json:"error,omitempty"`
 }
 
 // PollSolanaInput contains parameters for the PollSolana activity.
 type PollSolanaInput struct {
-	Address       string  `json:"address"`
-	LastSignature *string `json:"last_signature,omitempty"`
-	Limit         int     `json:"limit"`
+	Address            string   `json:"address"`
+	LastSignature      *string  `json:"last_signature,omitempty"`
+	Limit              int      `json:"limit"`
+	ExistingSignatures []string `json:"existing_signatures"`
 }
 
 // PollSolanaResult contains the result of polling Solana.
@@ -44,8 +45,8 @@ type PollSolanaResult struct {
 
 // WriteTransactionsInput contains parameters for the WriteTransactions activity.
 type WriteTransactionsInput struct {
-	WalletAddress string                  `json:"wallet_address"`
-	Transactions  []*solana.Transaction   `json:"transactions"`
+	WalletAddress string                `json:"wallet_address"`
+	Transactions  []*solana.Transaction `json:"transactions"`
 }
 
 // WriteTransactionsResult contains the result of writing transactions.
@@ -54,11 +55,25 @@ type WriteTransactionsResult struct {
 	Skipped int `json:"skipped"` // Already existed in DB
 }
 
+// GetExistingTransactionSignaturesInput contains parameters for the GetExistingTransactionSignatures activity.
+type GetExistingTransactionSignaturesInput struct {
+	WalletAddress string     `json:"wallet_address"`
+	Since         *time.Time `json:"since,omitempty"`
+}
+
+// GetExistingTransactionSignaturesResult contains the result of the GetExistingTransactionSignatures activity.
+type GetExistingTransactionSignaturesResult struct {
+	Signatures []string `json:"signatures"`
+}
+
 // StoreInterface defines the database operations needed by activities.
 // This allows for easy mocking in tests.
 type StoreInterface interface {
-	CreateTransaction(ctx context.Context, params db.CreateTransactionParams) (*db.Transaction, error)
-	UpdateWalletPollTime(ctx context.Context, address string, pollTime time.Time) (*db.Wallet, error)
+	CreateTransaction(context.Context, db.CreateTransactionParams) (*db.Transaction, error)
+	UpdateWalletPollTime(context.Context, string, time.Time) (*db.Wallet, error)
+	GetTransaction(context.Context, string) (*db.Transaction, error)
+	GetWallet(context.Context, string) (*db.Wallet, error)
+	GetTransactionSignaturesByWallet(context.Context, string, *time.Time) ([]string, error)
 }
 
 // SolanaClientInterface defines the Solana operations needed by activities.
@@ -67,7 +82,7 @@ type SolanaClientInterface interface {
 	GetTransactionsSince(ctx context.Context, params solana.GetTransactionsSinceParams) ([]*solana.Transaction, error)
 }
 
-// PublisherInterface defines the NATS operations needed by activities.
+// PublisherInterface defines the NATS publishing operations needed by activities.
 // This allows for easy mocking in tests.
 type PublisherInterface interface {
 	PublishTransaction(ctx context.Context, event *natspkg.TransactionEvent) error
@@ -142,9 +157,10 @@ func (a *Activities) PollSolana(ctx context.Context, input PollSolanaInput) (*Po
 
 	// Fetch transactions from Solana
 	params := solana.GetTransactionsSinceParams{
-		Wallet:        walletPubkey,
-		LastSignature: lastSig,
-		Limit:         limit,
+		Wallet:             walletPubkey,
+		LastSignature:      lastSig,
+		Limit:              limit,
+		ExistingSignatures: input.ExistingSignatures,
 	}
 
 	transactions, err := a.solanaClient.GetTransactionsSince(ctx, params)
@@ -174,6 +190,34 @@ func (a *Activities) PollSolana(ctx context.Context, input PollSolanaInput) (*Po
 		"address", input.Address,
 		"count", len(transactions),
 		"newest_signature", result.NewestSignature,
+	)
+
+	return result, nil
+}
+
+// GetExistingTransactionSignatures fetches existing transaction signatures from the database.
+func (a *Activities) GetExistingTransactionSignatures(ctx context.Context, input GetExistingTransactionSignaturesInput) (*GetExistingTransactionSignaturesResult, error) {
+	a.logger.DebugContext(ctx, "fetching existing transaction signatures",
+		"wallet_address", input.WalletAddress,
+		"since", input.Since,
+	)
+
+	signatures, err := a.store.GetTransactionSignaturesByWallet(ctx, input.WalletAddress, input.Since)
+	if err != nil {
+		a.logger.ErrorContext(ctx, "failed to get existing transaction signatures",
+			"wallet_address", input.WalletAddress,
+			"error", err,
+		)
+		return nil, fmt.Errorf("failed to get existing transaction signatures: %w", err)
+	}
+
+	result := &GetExistingTransactionSignaturesResult{
+		Signatures: signatures,
+	}
+
+	a.logger.InfoContext(ctx, "fetched existing transaction signatures successfully",
+		"wallet_address", input.WalletAddress,
+		"count", len(signatures),
 	)
 
 	return result, nil

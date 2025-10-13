@@ -99,6 +99,19 @@ func (s *Store) GetTransaction(ctx context.Context, signature string) (*Transact
 	return dbTransactionToDomain(&result), nil
 }
 
+// GetTransactionSignaturesByWallet retrieves all transaction signatures for a wallet.
+func (s *Store) GetTransactionSignaturesByWallet(ctx context.Context, walletAddress string, since *time.Time) ([]string, error) {
+	var sinceVal pgtype.Timestamptz
+	if since != nil {
+		sinceVal = pgtype.Timestamptz{Time: *since, Valid: true}
+	}
+	arg := dbgen.GetTransactionSignaturesByWalletParams{
+		WalletAddress: walletAddress,
+		Since:         sinceVal,
+	}
+	return s.q.GetTransactionSignaturesByWallet(ctx, arg)
+}
+
 // ListTransactionsByWallet retrieves transactions for a wallet with pagination.
 func (s *Store) ListTransactionsByWallet(ctx context.Context, params ListTransactionsByWalletParams) ([]*Transaction, error) {
 	sqlcParams := dbgen.ListTransactionsByWalletParams{

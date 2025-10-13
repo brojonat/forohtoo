@@ -51,3 +51,8 @@ ORDER BY block_time ASC;
 -- name: DeleteTransactionsOlderThan :exec
 DELETE FROM transactions
 WHERE block_time < $1;
+
+-- name: GetTransactionSignaturesByWallet :many
+SELECT signature FROM transactions
+WHERE wallet_address = @wallet_address
+AND (@since::timestamptz IS NULL OR block_time > @since);

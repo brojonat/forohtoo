@@ -302,7 +302,7 @@ func createScheduleCommand() *cli.Command {
 
 			// Create workflow action with proper input struct
 			workflowAction := client.ScheduleWorkflowAction{
-				ID:        fmt.Sprintf("poll-wallet-%s-{{.ScheduledTime.Unix}}", address),
+				ID:        fmt.Sprintf("poll-wallet-%s", address),
 				Workflow:  "PollWalletWorkflow",
 				TaskQueue: taskQueue,
 				Args: []interface{}{map[string]interface{}{
@@ -390,7 +390,7 @@ func recreateScheduleCommand() *cli.Command {
 			}
 
 			// Create workflow action with proper input struct
-			workflowID := fmt.Sprintf("poll-wallet-%s-{{.ScheduledTime.Unix}}", address)
+			workflowID := fmt.Sprintf("poll-wallet-%s", address)
 			workflowAction := client.ScheduleWorkflowAction{
 				ID:        workflowID,
 				Workflow:  "PollWalletWorkflow",
@@ -561,7 +561,7 @@ func reconcileCommand() *cli.Command {
 					}
 
 					workflowAction := client.ScheduleWorkflowAction{
-						ID:        fmt.Sprintf("poll-wallet-%s-{{.ScheduledTime.Unix}}", addr),
+						ID:        fmt.Sprintf("poll-wallet-%s", addr),
 						Workflow:  "PollWalletWorkflow",
 						TaskQueue: c.String("task-queue"),
 						Args: []interface{}{map[string]interface{}{

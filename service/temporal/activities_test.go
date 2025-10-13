@@ -48,6 +48,30 @@ func (m *MockStore) UpdateWalletPollTime(ctx context.Context, address string, po
 	return args.Get(0).(*db.Wallet), args.Error(1)
 }
 
+func (m *MockStore) GetTransaction(ctx context.Context, signature string) (*db.Transaction, error) {
+	args := m.Called(ctx, signature)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*db.Transaction), args.Error(1)
+}
+
+func (m *MockStore) GetWallet(ctx context.Context, address string) (*db.Wallet, error) {
+	args := m.Called(ctx, address)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*db.Wallet), args.Error(1)
+}
+
+func (m *MockStore) GetTransactionSignaturesByWallet(ctx context.Context, walletAddress string, since *time.Time) ([]string, error) {
+	args := m.Called(ctx, walletAddress, since)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
+}
+
 func TestActivities_PollSolana(t *testing.T) {
 	testWallet := "TestWa11et11111111111111111111111111111"
 
@@ -140,18 +164,95 @@ func TestActivities_PollSolana(t *testing.T) {
 			mockStore := new(MockStore)
 			tt.setupMock(mockSolanaClient)
 
-			// Create fake solana client wrapper
-			// Since we can't easily mock the internal solana.Client, we'll test this at integration level
-			// For now, skip mocked tests that require actual Solana client
-			if tt.name == "invalid wallet address" {
-				// We can test validation directly
-				activities := NewActivities(mockStore, nil, nil, slog.Default())
-				result, err := activities.PollSolana(context.Background(), tt.input)
-				if tt.expectedError {
-					assert.Error(t, err)
-					assert.Nil(t, result)
-				}
+			activities := NewActivities(mockStore, mockSolanaClient, nil, slog.Default())
+			result, err := activities.PollSolana(context.Background(), tt.input)
+
+			if tt.expectedError {
+				assert.Error(t, err)
+				assert.Nil(t, result)
+			} else {
+				assert.NoError(t, err)
+				require.NotNil(t, result)
+				assert.Equal(t, len(tt.expectedResult.Transactions), len(result.Transactions))
+				assert.Equal(t, tt.expectedResult.NewestSignature, result.NewestSignature)
+				assert.Equal(t, tt.expectedResult.OldestSignature, result.OldestSignature)
 			}
+		})
+	}
+}
+
+func TestActivities_GetExistingTransactionSignatures(t *testing.T) {
+	testWallet := "TestWa11et11111111111111111111111111111"
+
+	tests := []struct {
+		name           string
+		input          GetExistingTransactionSignaturesInput
+		setupMock      func(*MockStore)
+		expectedResult *GetExistingTransactionSignaturesResult
+		expectedError  bool
+	}{
+		{
+			name: "successful fetch with signatures",
+			input: GetExistingTransactionSignaturesInput{
+				WalletAddress: testWallet,
+			},
+			setupMock: func(m *MockStore) {
+				sigs := []string{"sig1", "sig2"}
+				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, mock.Anything).
+					Return(sigs, nil)
+			},
+			expectedResult: &GetExistingTransactionSignaturesResult{
+				Signatures: []string{"sig1", "sig2"},
+			},
+			expectedError: false,
+		},
+		{
+			name: "successful fetch with no signatures",
+			input: GetExistingTransactionSignaturesInput{
+				WalletAddress: testWallet,
+			},
+			setupMock: func(m *MockStore) {
+				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, mock.Anything).
+					Return([]string{}, nil)
+			},
+			expectedResult: &GetExistingTransactionSignaturesResult{
+				Signatures: []string{},
+			},
+			expectedError: false,
+		},
+		{
+			name: "store returns an error",
+			input: GetExistingTransactionSignaturesInput{
+				WalletAddress: testWallet,
+			},
+			setupMock: func(m *MockStore) {
+				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, mock.Anything).
+					Return(nil, errors.New("db error"))
+			},
+			expectedResult: nil,
+			expectedError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockStore := new(MockStore)
+			tt.setupMock(mockStore)
+
+			activities := NewActivities(mockStore, nil, nil, slog.Default())
+
+			result, err := activities.GetExistingTransactionSignatures(context.Background(), tt.input)
+
+			if tt.expectedError {
+				assert.Error(t, err)
+				assert.Nil(t, result)
+			} else {
+				assert.NoError(t, err)
+				require.NotNil(t, result)
+				assert.Equal(t, tt.expectedResult.Signatures, result.Signatures)
+			}
+
+			mockStore.AssertExpectations(t)
 		})
 	}
 }

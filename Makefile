@@ -66,13 +66,21 @@ run: build ## Build and run both server and worker
 	@echo "Run 'make run-server' or 'make run-worker' to run them individually"
 	@echo "Or use tmux/docker-compose to run both simultaneously"
 
+.PHONY: run-dev-server
+run-dev-server: ## Run server with hot reload using air
+	air -c .air.server.toml
+
+.PHONY: run-dev-worker
+run-dev-worker: ## Run worker with hot reload using air
+	air -c .air.worker.toml
+
 .PHONY: run-dev
-run-dev: ## Run server with hot reload using air
-	air
+run-dev: ## Run server and worker with hot reload using tmux
+	@echo "Starting development session with tmux..."
+	./scripts/dev.sh
 
 .PHONY: start-dev-session
-start-dev-session: ## Start tmux development session
-	./scripts/dev.sh
+start-dev-session: run-dev ## Start tmux development session (alias for run-dev)
 
 .PHONY: stop-dev-session
 stop-dev-session: ## Stop tmux development session

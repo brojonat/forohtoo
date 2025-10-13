@@ -26,57 +26,51 @@ tmux new-session -d -s "$SESSION_NAME" -n "main"
 
 # Layout:
 # +-----------+-----------+-----------+
-# |  Server   |  Worker   |           |
-# +-----------+-----------+   Shell   |
-# | ServerLog | WorkerLog |           |
+# |  Server   |  Worker   |    CLI    |
 # +-----------+-----------+-----------+
+# |                                   |
+# |           Shell                   |
+# |                                   |
+# +-----------------------------------+
 
-# Create 3 vertical panes. This is more robust than using percentages.
-tmux split-window -h
-tmux split-window -h -t 0
-tmux select-layout even-horizontal
+# 1. Create a top and bottom pane. The top will be for the runners.
+tmux split-window -v -l 12 # Give the top pane a fixed height of 12 lines.
 
-# We now have 3 vertical panes: 0, 1, 2
+# We now have:
+# Pane 0: Top (12 lines)
+# Pane 1: Bottom (the rest)
 
-# Split the first column for Server and Server Logs
-tmux split-window -v -t 0
+# 2. Select the top pane
+tmux select-pane -t 0
 
-# Split the second column for Worker and Worker Logs
-tmux split-window -v -t 1
+# 3. Split the top pane into three columns for the runners
+tmux split-window -h # Pane 0 becomes left, new pane 2 is right
+tmux split-window -h -t 0 # Pane 0 becomes left, new pane 3 is middle
 
-# After splitting, the panes are numbered:
-# 0: Server (top-left)
-# 3: Server Logs (bottom-left)
-# 1: Worker (top-middle)
-# 4: Worker Logs (bottom-middle)
-# 2: Shell (right)
+# Final pane structure:
+# Top Row (left to right): Pane 0 (Server), Pane 3 (Shell), Pane 2 (CLI)
+# Bottom Row: Pane 1 (Worker)
 
 # Pane 0: Server (with air hot-reloading)
-tmux send-keys -t "$SESSION_NAME:main.0" "air -c .air.toml" C-m
+tmux send-keys -t "$SESSION_NAME:main.0" "air -c .air.server.toml" C-m
 
-# Pane 3: Server Logs
-tmux send-keys -t "$SESSION_NAME:main.3" "echo 'Waiting for server log...' && until test -f logs/server.log; do sleep 1; done; tail -f logs/server.log | jq ." C-m
+# Pane 1: Worker (with air hot-reloading)
+tmux send-keys -t "$SESSION_NAME:main.1" "air -c .air.worker.toml" C-m
 
-# Pane 1: Worker
-tmux send-keys -t "$SESSION_NAME:main.1" "./scripts/run-worker.sh" C-m
+# Pane 2: CLI Builder (with air hot-reloading)
+tmux send-keys -t "$SESSION_NAME:main.2" "air -c .air.cli.toml" C-m
 
-# Pane 4: Worker Logs
-tmux send-keys -t "$SESSION_NAME:main.4" "echo 'Waiting for worker log...' && until test -f logs/worker.log; do sleep 1; done; tail -f logs/worker.log | jq ." C-m
-
-# Pane 2: Shell
-tmux send-keys -t "$SESSION_NAME:main.2" "# General shell" C-m
+# Pane 3: Shell
+tmux send-keys -t "$SESSION_NAME:main.3" "# General shell" C-m
 
 # Select the shell pane to be active
-tmux select-pane -t "$SESSION_NAME:main.2"
+tmux select-pane -t "$SESSION_NAME:main.3"
 
 echo "Starting tmux session: $SESSION_NAME"
 echo ""
 echo "Pane layout:"
-echo "  - Top-left: Server (hot-reloading with air)"
-echo "  - Bottom-left: Server Logs"
-echo "  - Top-middle: Worker"
-echo "  - Bottom-middle: Worker Logs"
-echo "  - Right: Shell"
+echo "  - Top Row: Server | Shell | CLI Builder (hot-reloading)"
+echo "  - Bottom: Worker"
 echo ""
 echo "Tips:"
 echo "  - Switch panes: Ctrl+b then arrow keys"

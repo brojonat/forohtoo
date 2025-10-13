@@ -18,6 +18,7 @@ type Querier interface {
 	DeleteWallet(ctx context.Context, address string) error
 	GetLatestTransactionByWallet(ctx context.Context, walletAddress string) (Transaction, error)
 	GetTransaction(ctx context.Context, signature string) (Transaction, error)
+	GetTransactionSignaturesByWallet(ctx context.Context, arg GetTransactionSignaturesByWalletParams) ([]string, error)
 	GetTransactionsSince(ctx context.Context, arg GetTransactionsSinceParams) ([]Transaction, error)
 	GetWallet(ctx context.Context, address string) (Wallet, error)
 	ListActiveWallets(ctx context.Context) ([]Wallet, error)

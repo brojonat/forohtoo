@@ -24,9 +24,9 @@ A Go-based service and client library for polling Solana wallets and integrating
                                          │ HTTP/SSE
                                          ▼
                               ┌─────────────────────┐
-                              │  CLIENTS            │
-                              │  - REST API         │
-                              │  - SSE              │
+                              │  CLIENT             │
+                              │  - CRULD wallets    │
+                              │  - Await txns       │
                               └─────────────────────┘
 ```
 

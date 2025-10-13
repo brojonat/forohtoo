@@ -2,8 +2,6 @@ package solana
 
 import (
 	"time"
-
-	"github.com/gagliardetto/solana-go"
 )
 
 // Transaction represents a parsed Solana transaction.
@@ -17,11 +15,4 @@ type Transaction struct {
 	Memo        *string // parsed from transaction instructions
 	FromAddress *string // source wallet (sender), nil if cannot be determined
 	Err         *string // nil if transaction succeeded, contains error message if failed
-}
-
-// GetTransactionsSinceParams contains parameters for polling new transactions.
-type GetTransactionsSinceParams struct {
-	Wallet        solana.PublicKey
-	LastSignature *solana.Signature // nil = get most recent transactions
-	Limit         int               // max transactions to return (default 100, max 1000)
 }

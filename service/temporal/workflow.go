@@ -8,6 +8,8 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
+var a *Activities // for type-safe activity invocation
+
 // PollWalletWorkflow is the Temporal workflow that polls a Solana wallet for new transactions.
 // It is triggered by a Temporal schedule at a configured interval (e.g., every 30 seconds).
 //
@@ -33,7 +35,7 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 
 	// Configure activity options
 	activityOptions := workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
+		StartToCloseTimeout: 300 * time.Second,
 		RetryPolicy: &temporalsdk.RetryPolicy{
 			InitialInterval:    time.Second,
 			BackoffCoefficient: 2.0,
@@ -43,17 +45,29 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 	}
 	ctx = workflow.WithActivityOptions(ctx, activityOptions)
 
-	// Step 1: Poll Solana for new transactions
+	// Step 1: Get existing transaction signatures from the database
+	var existingSigsResult *GetExistingTransactionSignaturesResult
+	since := workflow.Now(ctx).Add(-24 * time.Hour)
+	err := workflow.ExecuteActivity(ctx, a.GetExistingTransactionSignatures, GetExistingTransactionSignaturesInput{WalletAddress: input.Address, Since: &since}).Get(ctx, &existingSigsResult)
+	if err != nil {
+		errMsg := fmt.Sprintf("failed to get existing transaction signatures: %v", err)
+		result.Error = &errMsg
+		return result, fmt.Errorf("failed to get existing transaction signatures: %w", err)
+	}
+	logger.Info("got existing transaction signatures", "count", len(existingSigsResult.Signatures))
+
+	// Step 2: Poll Solana for new transactions
 	logger.Debug("polling solana", "address", input.Address, "last_signature", lastSignature)
 
 	pollInput := PollSolanaInput{
-		Address:       input.Address,
-		LastSignature: lastSignature,
-		Limit:         100,
+		Address:            input.Address,
+		LastSignature:      lastSignature,
+		Limit:              100,
+		ExistingSignatures: existingSigsResult.Signatures,
 	}
 
 	var pollResult *PollSolanaResult
-	err := workflow.ExecuteActivity(ctx, "PollSolana", pollInput).Get(ctx, &pollResult)
+	err = workflow.ExecuteActivity(ctx, a.PollSolana, pollInput).Get(ctx, &pollResult)
 	if err != nil {
 		logger.Error("failed to poll solana", "address", input.Address, "error", err)
 		errMsg := fmt.Sprintf("failed to poll solana: %v", err)
@@ -77,7 +91,7 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 		return result, nil
 	}
 
-	// Step 2: Write transactions to database
+	// Step 3: Write transactions to database
 	logger.Debug("writing transactions to database",
 		"address", input.Address,
 		"count", len(pollResult.Transactions),
@@ -89,7 +103,7 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 	}
 
 	var writeResult *WriteTransactionsResult
-	err = workflow.ExecuteActivity(ctx, "WriteTransactions", writeInput).Get(ctx, &writeResult)
+	err = workflow.ExecuteActivity(ctx, a.WriteTransactions, writeInput).Get(ctx, &writeResult)
 	if err != nil {
 		logger.Error("failed to write transactions",
 			"address", input.Address,
@@ -109,12 +123,12 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 	// Update result with newest signature for next poll
 	result.LastSignatureSeen = pollResult.NewestSignature
 
-	// TODO: Step 3: Publish transactions to NATS (future activity)
+	// FIXME:TODO: Step 4: Publish transactions to NATS (future activity)
 	// publishInput := PublishTransactionsInput{
 	//     WalletAddress: input.Address,
 	//     Transactions:  pollResult.Transactions,
 	// }
-	// err = workflow.ExecuteActivity(ctx, "PublishTransactions", publishInput).Get(ctx, nil)
+	// err = workflow.ExecuteActivity(ctx, a.PublishTransactions, publishInput).Get(ctx, nil)
 
 	logger.Info("PollWalletWorkflow completed successfully",
 		"address", input.Address,
