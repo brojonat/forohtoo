@@ -17,7 +17,7 @@ func TestPollWalletWorkflow(t *testing.T) {
 	tests := []struct {
 		name             string
 		input            PollWalletInput
-		mockActivities   func(*testsuite.MockCallWrapper, *testsuite.MockCallWrapper)
+		mockActivities   func(*testsuite.MockCallWrapper, *testsuite.MockCallWrapper, *testsuite.MockCallWrapper)
 		expectedError    bool
 		validateResult   func(*testing.T, *PollWalletResult)
 	}{
@@ -26,7 +26,13 @@ func TestPollWalletWorkflow(t *testing.T) {
 			input: PollWalletInput{
 				Address: testWallet,
 			},
-			mockActivities: func(pollMock, writeMock *testsuite.MockCallWrapper) {
+			mockActivities: func(pollMock, writeMock *testsuite.MockCallWrapper, getSigsMock *testsuite.MockCallWrapper) {
+				// Mock GetExistingTransactionSignatures activity
+				getSigsResult := &GetExistingTransactionSignaturesResult{
+					Signatures: []string{}, // Empty - no existing signatures
+				}
+				getSigsMock.Return(getSigsResult, nil)
+
 				// Mock PollSolana activity
 				pollResult := &PollSolanaResult{
 					Transactions: []*solana.Transaction{
@@ -71,7 +77,13 @@ func TestPollWalletWorkflow(t *testing.T) {
 			input: PollWalletInput{
 				Address: testWallet,
 			},
-			mockActivities: func(pollMock, writeMock *testsuite.MockCallWrapper) {
+			mockActivities: func(pollMock, writeMock *testsuite.MockCallWrapper, getSigsMock *testsuite.MockCallWrapper) {
+				// Mock GetExistingTransactionSignatures activity
+				getSigsResult := &GetExistingTransactionSignaturesResult{
+					Signatures: []string{},
+				}
+				getSigsMock.Return(getSigsResult, nil)
+
 				// Mock PollSolana activity - returns empty list
 				pollResult := &PollSolanaResult{
 					Transactions:    []*solana.Transaction{},
@@ -96,7 +108,13 @@ func TestPollWalletWorkflow(t *testing.T) {
 			input: PollWalletInput{
 				Address: testWallet,
 			},
-			mockActivities: func(pollMock, writeMock *testsuite.MockCallWrapper) {
+			mockActivities: func(pollMock, writeMock *testsuite.MockCallWrapper, getSigsMock *testsuite.MockCallWrapper) {
+				// Mock GetExistingTransactionSignatures activity
+				getSigsResult := &GetExistingTransactionSignaturesResult{
+					Signatures: []string{},
+				}
+				getSigsMock.Return(getSigsResult, nil)
+
 				// Mock PollSolana activity failure
 				pollMock.Return(nil, errors.New("solana RPC error"))
 
@@ -113,7 +131,13 @@ func TestPollWalletWorkflow(t *testing.T) {
 			input: PollWalletInput{
 				Address: testWallet,
 			},
-			mockActivities: func(pollMock, writeMock *testsuite.MockCallWrapper) {
+			mockActivities: func(pollMock, writeMock *testsuite.MockCallWrapper, getSigsMock *testsuite.MockCallWrapper) {
+				// Mock GetExistingTransactionSignatures activity
+				getSigsResult := &GetExistingTransactionSignaturesResult{
+					Signatures: []string{},
+				}
+				getSigsMock.Return(getSigsResult, nil)
+
 				// Mock PollSolana activity success
 				pollResult := &PollSolanaResult{
 					Transactions: []*solana.Transaction{
@@ -148,14 +172,16 @@ func TestPollWalletWorkflow(t *testing.T) {
 
 			// Register activities first (before mocking)
 			activities := &Activities{}
+			env.RegisterActivity(activities.GetExistingTransactionSignatures)
 			env.RegisterActivity(activities.PollSolana)
 			env.RegisterActivity(activities.WriteTransactions)
 
 			// Mock activities
+			getSigsMock := env.OnActivity(activities.GetExistingTransactionSignatures, mock.Anything, mock.Anything)
 			pollMock := env.OnActivity(activities.PollSolana, mock.Anything, mock.Anything)
 			writeMock := env.OnActivity(activities.WriteTransactions, mock.Anything, mock.Anything)
 
-			tt.mockActivities(pollMock, writeMock)
+			tt.mockActivities(pollMock, writeMock, getSigsMock)
 
 			// Execute workflow
 			env.ExecuteWorkflow(PollWalletWorkflow, tt.input)
@@ -190,8 +216,15 @@ func TestPollWalletWorkflow_ActivityRetries(t *testing.T) {
 
 	// Register activities first
 	activities := &Activities{}
+	env.RegisterActivity(activities.GetExistingTransactionSignatures)
 	env.RegisterActivity(activities.PollSolana)
 	env.RegisterActivity(activities.WriteTransactions)
+
+	// Mock GetExistingTransactionSignatures to succeed
+	env.OnActivity(activities.GetExistingTransactionSignatures, mock.Anything, mock.Anything).
+		Return(&GetExistingTransactionSignaturesResult{
+			Signatures: []string{},
+		}, nil)
 
 	// Mock PollSolana to fail twice then succeed
 	callCount := 0
@@ -243,6 +276,7 @@ func TestPollWalletWorkflow_WorkflowTimer(t *testing.T) {
 
 	// Register activities first
 	activities := &Activities{}
+	env.RegisterActivity(activities.GetExistingTransactionSignatures)
 	env.RegisterActivity(activities.PollSolana)
 	env.RegisterActivity(activities.WriteTransactions)
 
@@ -250,6 +284,11 @@ func TestPollWalletWorkflow_WorkflowTimer(t *testing.T) {
 	startTime := env.Now()
 
 	// Mock activities
+	env.OnActivity(activities.GetExistingTransactionSignatures, mock.Anything, mock.Anything).
+		Return(&GetExistingTransactionSignaturesResult{
+			Signatures: []string{},
+		}, nil)
+
 	env.OnActivity(activities.PollSolana, mock.Anything, mock.Anything).
 		Return(&PollSolanaResult{
 			Transactions:    []*solana.Transaction{},

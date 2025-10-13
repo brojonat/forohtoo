@@ -73,7 +73,7 @@ func (m *MockStore) GetTransactionSignaturesByWallet(ctx context.Context, wallet
 }
 
 func TestActivities_PollSolana(t *testing.T) {
-	testWallet := "TestWa11et11111111111111111111111111111"
+	testWallet := "11111111111111111111111111111111" // Valid 32-byte base58 address
 
 	tests := []struct {
 		name           string
@@ -182,7 +182,7 @@ func TestActivities_PollSolana(t *testing.T) {
 }
 
 func TestActivities_GetExistingTransactionSignatures(t *testing.T) {
-	testWallet := "TestWa11et11111111111111111111111111111"
+	testWallet := "11111111111111111111111111111111" // Valid 32-byte base58 address
 
 	tests := []struct {
 		name           string
@@ -258,7 +258,7 @@ func TestActivities_GetExistingTransactionSignatures(t *testing.T) {
 }
 
 func TestActivities_WriteTransactions(t *testing.T) {
-	testWallet := "TestWa11et11111111111111111111111111111"
+	testWallet := "11111111111111111111111111111111" // Valid 32-byte base58 address
 
 	tests := []struct {
 		name           string
@@ -376,7 +376,7 @@ func TestActivities_WriteTransactions(t *testing.T) {
 }
 
 func TestActivities_WriteTransactions_SetsConfirmationStatus(t *testing.T) {
-	testWallet := "TestWa11et11111111111111111111111111111"
+	testWallet := "11111111111111111111111111111111" // Valid 32-byte base58 address
 	mockStore := new(MockStore)
 
 	// Transaction with no error should be "confirmed"

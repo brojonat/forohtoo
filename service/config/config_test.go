@@ -10,6 +10,9 @@ import (
 )
 
 func TestLoad_ValidConfig(t *testing.T) {
+	// Clean up any existing env vars first
+	cleanupEnv()
+
 	// Setup environment variables
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
 	os.Setenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")

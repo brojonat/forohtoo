@@ -18,6 +18,7 @@ help: ## Show this help message
 
 .PHONY: test
 test: ## Run unit tests (skips integration tests)
+	$(call setup_env, .env.test)
 	go test ./... -v -race -cover
 
 .PHONY: test-db
