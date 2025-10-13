@@ -32,7 +32,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: {{DOCKER_REPO}}/forohtoo:{{GIT_COMMIT_SHA}}
+        image: brojonat/forohtoo:41e4fd927a69f0c54ef9fe567a09231b1d0b8602
         imagePullPolicy: Always
         command: ["/server"]
         ports:

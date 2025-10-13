@@ -36,14 +36,14 @@ func New(addr string, store *db.Store, scheduler temporal.Scheduler, ssePublishe
 	}
 }
 
-// WithTemplates adds template rendering support to the server
-func (s *Server) WithTemplates(templatesDir string) error {
-	renderer, err := NewTemplateRenderer(templatesDir, s.logger)
+// WithTemplates adds template rendering support to the server using embedded files
+func (s *Server) WithTemplates() error {
+	renderer, err := NewTemplateRenderer(s.logger)
 	if err != nil {
 		return fmt.Errorf("failed to initialize templates: %w", err)
 	}
 	s.renderer = renderer
-	s.logger.Info("HTML templates loaded", "dir", templatesDir)
+	s.logger.Info("HTML templates loaded from embedded files")
 	return nil
 }
 

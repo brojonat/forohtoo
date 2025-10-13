@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: forohtoo-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: forohtoo.brojonat.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: forohtoo-server
+            port:
+              number: 80
+  tls:
+  - hosts:
+    - forohtoo.brojonat.com
+    secretName: forohtoo-tls

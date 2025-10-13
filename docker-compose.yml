@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: forohtoo
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -24,7 +24,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: forohtoo_test
     ports:
-      - "5433:5432" # Different port to avoid conflicts
+      - "15433:5432" # Different port to avoid conflicts
     tmpfs:
       - /var/lib/postgresql/data # Use tmpfs for faster tests
     healthcheck:
@@ -38,9 +38,9 @@ services:
     container_name: forohtoo-nats
     command: ["-js", "-sd", "/data"]
     ports:
-      - "4222:4222" # Client connections
-      - "8222:8222" # HTTP monitoring
-      - "6222:6222" # Routing for clustering
+      - "14222:4222" # Client connections
+      - "18222:8222" # HTTP monitoring
+      - "16222:6222" # Routing for clustering
     volumes:
       - nats-data:/data
     healthcheck:
@@ -62,8 +62,8 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=postgres
     ports:
-      - "7233:7233" # gRPC
-      - "8233:8233" # HTTP API
+      - "17233:7233" # gRPC
+      - "18233:8233" # HTTP API
     healthcheck:
       test:
         [
@@ -89,7 +89,7 @@ services:
       - TEMPORAL_ADDRESS=forohtoo-temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
     ports:
-      - "8081:8080"
+      - "18081:8080"
 
 volumes:
   postgres-data:

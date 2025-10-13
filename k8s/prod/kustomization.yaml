@@ -1,11 +1,4 @@
 resources:
 - server.yaml
 - worker.yaml
-
-secretGenerator:
-- name: forohtoo-secret-server-envs
-  envs:
-  - ../../.env.server.prod
-- name: forohtoo-secret-worker-envs
-  envs:
-  - ../../.env.worker.prod
+- ingress.yaml

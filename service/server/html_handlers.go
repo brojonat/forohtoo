@@ -1,11 +1,14 @@
 package server
 
 import (
+	"embed"
 	"html/template"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 )
+
+//go:embed templates/*.html
+var templatesFS embed.FS
 
 // TemplateRenderer holds parsed HTML templates
 type TemplateRenderer struct {
@@ -13,10 +16,10 @@ type TemplateRenderer struct {
 	logger    *slog.Logger
 }
 
-// NewTemplateRenderer creates a new template renderer
-func NewTemplateRenderer(templatesDir string, logger *slog.Logger) (*TemplateRenderer, error) {
-	// Parse all templates in the directory
-	tmpl, err := template.ParseGlob(filepath.Join(templatesDir, "*.html"))
+// NewTemplateRenderer creates a new template renderer from embedded files
+func NewTemplateRenderer(logger *slog.Logger) (*TemplateRenderer, error) {
+	// Parse all templates from embedded filesystem
+	tmpl, err := template.ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}

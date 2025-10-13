@@ -114,14 +114,17 @@ db-reset: ## Reset database (drop and recreate)
 
 .PHONY: db-test-migrate-up
 db-test-migrate-up: ## Run migrations on test database
+	$(call setup_env, .env.test)
 	migrate -path service/db/migrations -database "${TEST_DATABASE_URL}" up
 
 .PHONY: db-test-migrate-down
 db-test-migrate-down: ## Rollback migrations on test database
+	$(call setup_env, .env.test)
 	migrate -path service/db/migrations -database "${TEST_DATABASE_URL}" down
 
 .PHONY: db-test-reset
 db-test-reset: ## Reset test database
+	$(call setup_env, .env.test)
 	migrate -path service/db/migrations -database "${TEST_DATABASE_URL}" drop -f
 	migrate -path service/db/migrations -database "${TEST_DATABASE_URL}" up
 
@@ -226,3 +229,32 @@ k8s-status: ## Show Kubernetes deployment status
 deploy: docker-build-tag docker-push k8s-apply ## Full deployment: build, push, and apply (requires DOCKER_REPO and GIT_COMMIT_SHA)
 	@echo "Deployment complete!"
 	@echo "Monitor status with: make k8s-status"
+
+.PHONY: deploy-all
+deploy-all: ## Full deployment: build, push, update manifests, and deploy
+	@echo "Starting deployment..."
+	@export GIT_COMMIT_SHA=$$(git rev-parse HEAD) && \
+	export DOCKER_REPO=brojonat && \
+	echo "Building Docker image: $$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA" && \
+	docker build -t $$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA -t $$DOCKER_REPO/forohtoo:latest . && \
+	echo "Pushing to Docker Hub..." && \
+	docker push $$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA && \
+	docker push $$DOCKER_REPO/forohtoo:latest && \
+	echo "Updating Kubernetes manifests..." && \
+	sed -i "s|image: $$DOCKER_REPO/forohtoo:.*|image: $$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA|g" k8s/prod/server.yaml && \
+	sed -i "s|image: $$DOCKER_REPO/forohtoo:.*|image: $$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA|g" k8s/prod/worker.yaml && \
+	echo "Applying Kubernetes manifests..." && \
+	kubectl apply -k k8s/prod && \
+	echo "Restarting deployments..." && \
+	kubectl rollout restart deployment/forohtoo-server && \
+	kubectl rollout restart deployment/forohtoo-worker && \
+	echo "Waiting for rollout..." && \
+	kubectl rollout status deployment/forohtoo-server && \
+	kubectl rollout status deployment/forohtoo-worker && \
+	echo "" && \
+	echo "=== Deployment Complete ===" && \
+	echo "Image: $$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA" && \
+	echo "URL: https://forohtoo.brojonat.com" && \
+	echo "" && \
+	echo "Check status with: make k8s-status" && \
+	echo "Check logs with: make k8s-logs-server or make k8s-logs-worker"

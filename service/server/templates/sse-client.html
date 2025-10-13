@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Forohtoo Transaction Stream</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, sans-serif;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+        background: #f5f5f5;
+      }
+      .header {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .controls {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+      input {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      button {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+      }
+      .btn-connect {
+        background: #4caf50;
+        color: white;
+      }
+      .btn-disconnect {
+        background: #f44336;
+        color: white;
+      }
+      .btn-clear {
+        background: #2196f3;
+        color: white;
+      }
+      .status {
+        padding: 10px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+        font-weight: 500;
+      }
+      .status.disconnected {
+        background: #ffebee;
+        color: #c62828;
+      }
+      .status.connected {
+        background: #e8f5e9;
+        color: #2e7d32;
+      }
+      .status.connecting {
+        background: #fff3e0;
+        color: #ef6c00;
+      }
+      .transactions {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .transaction {
+        border-bottom: 1px solid #eee;
+        padding: 15px 0;
+        animation: fadeIn 0.3s;
+      }
+      .transaction:last-child {
+        border-bottom: none;
+      }
+      .transaction-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+      .signature {
+        font-family: "Courier New", monospace;
+        font-size: 12px;
+        color: #666;
+        word-break: break-all;
+      }
+      .amount {
+        font-size: 18px;
+        font-weight: 600;
+        color: #4caf50;
+      }
+      .meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 10px;
+        margin-top: 10px;
+        font-size: 13px;
+        color: #666;
+      }
+      .meta-item {
+        display: flex;
+        flex-direction: column;
+      }
+      .meta-label {
+        font-weight: 500;
+        color: #999;
+        font-size: 11px;
+        text-transform: uppercase;
+        margin-bottom: 2px;
+      }
+      .empty {
+        text-align: center;
+        color: #999;
+        padding: 40px;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .count {
+        color: #666;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>🚀 Forohtoo Transaction Stream</h1>
+      <p>
+        Real-time Solana wallet transaction streaming via Server-Sent Events
+      </p>
+    </div>
+
+    <div class="controls">
+      <input
+        type="text"
+        id="walletAddress"
+        placeholder="Enter wallet address (leave empty for all wallets)"
+        value=""
+      />
+      <button class="btn-connect" onclick="connect()">Connect</button>
+      <button class="btn-disconnect" onclick="disconnect()">Disconnect</button>
+      <button class="btn-clear" onclick="clearTransactions()">Clear</button>
+    </div>
+
+    <div class="status disconnected" id="status">Disconnected</div>
+
+    <div class="transactions">
+      <div
+        style="
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 15px;
+        "
+      >
+        <h2 style="margin: 0">Transactions</h2>
+        <span class="count" id="count">0 transactions</span>
+      </div>
+      <div id="transactionList">
+        <div class="empty">
+          Enter a wallet address and click Connect to start streaming
+          transactions.
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let eventSource = null;
+      let transactionCount = 0;
+      const SERVER_URL = "http://localhost:8080";
+
+      function updateStatus(status, message) {
+        const statusEl = document.getElementById("status");
+        statusEl.className = `status ${status}`;
+        statusEl.textContent = message;
+      }
+
+      function updateCount() {
+        document.getElementById(
+          "count"
+        ).textContent = `${transactionCount} transaction${
+          transactionCount !== 1 ? "s" : ""
+        }`;
+      }
+
+      function formatLamports(lamports) {
+        return `${(lamports / 1e9).toFixed(4)} SOL`;
+      }
+
+      function formatDate(dateString) {
+        return new Date(dateString).toLocaleString();
+      }
+
+      function addTransaction(txn) {
+        const listEl = document.getElementById("transactionList");
+
+        // Remove empty message if exists
+        if (listEl.querySelector(".empty")) {
+          listEl.innerHTML = "";
+        }
+
+        const txnEl = document.createElement("div");
+        txnEl.className = "transaction";
+
+        const metaItems = [];
+        metaItems.push(`
+                <div class="meta-item">
+                    <div class="meta-label">Wallet</div>
+                    <div class="signature">${txn.wallet_address}</div>
+                </div>
+            `);
+        metaItems.push(`
+                <div class="meta-item">
+                    <div class="meta-label">Slot</div>
+                    <div>${txn.slot.toLocaleString()}</div>
+                </div>
+            `);
+        metaItems.push(`
+                <div class="meta-item">
+                    <div class="meta-label">Status</div>
+                    <div>${txn.confirmation_status}</div>
+                </div>
+            `);
+        metaItems.push(`
+                <div class="meta-item">
+                    <div class="meta-label">Block Time</div>
+                    <div>${formatDate(txn.block_time)}</div>
+                </div>
+            `);
+
+        if (txn.token_type) {
+          metaItems.push(`
+                    <div class="meta-item">
+                        <div class="meta-label">Token</div>
+                        <div class="signature">${txn.token_type}</div>
+                    </div>
+                `);
+        }
+
+        if (txn.memo) {
+          metaItems.push(`
+                    <div class="meta-item">
+                        <div class="meta-label">Memo</div>
+                        <div>${txn.memo}</div>
+                    </div>
+                `);
+        }
+
+        txnEl.innerHTML = `
+                <div class="transaction-header">
+                    <div class="amount">${formatLamports(txn.amount)}</div>
+                    <div style="font-size: 12px; color: #999;">${formatDate(
+                      txn.published_at
+                    )}</div>
+                </div>
+                <div class="signature">Signature: ${txn.signature}</div>
+                <div class="meta">
+                    ${metaItems.join("")}
+                </div>
+            `;
+
+        // Add to top of list
+        listEl.insertBefore(txnEl, listEl.firstChild);
+        transactionCount++;
+        updateCount();
+      }
+
+      function connect() {
+        if (eventSource) {
+          disconnect();
+        }
+
+        const walletAddress = document
+          .getElementById("walletAddress")
+          .value.trim();
+        let url;
+
+        if (walletAddress) {
+          url = `${SERVER_URL}/api/v1/stream/transactions/${walletAddress}`;
+          updateStatus("connecting", `Connecting to ${walletAddress}...`);
+        } else {
+          url = `${SERVER_URL}/api/v1/stream/transactions`;
+          updateStatus("connecting", "Connecting to all wallets...");
+        }
+
+        console.log("Creating EventSource connection:", url);
+        eventSource = new EventSource(url);
+
+        eventSource.onopen = (e) => {
+          console.log("EventSource connection opened:", {
+            readyState: eventSource.readyState,
+            url: eventSource.url
+          });
+        };
+
+        eventSource.addEventListener("connected", (e) => {
+          console.log("Received 'connected' event:", e.data);
+          const data = JSON.parse(e.data);
+          if (walletAddress) {
+            updateStatus("connected", `Connected to ${walletAddress}`);
+          } else {
+            updateStatus("connected", "Connected to all wallets");
+          }
+        });
+
+        eventSource.addEventListener("transaction", (e) => {
+          const txn = JSON.parse(e.data);
+          addTransaction(txn);
+        });
+
+        eventSource.onerror = (e) => {
+          console.error("SSE connection error:", {
+            event: e,
+            eventType: e.type,
+            readyState: eventSource ? eventSource.readyState : 'null',
+            readyStateText: eventSource ?
+              (eventSource.readyState === 0 ? 'CONNECTING' :
+               eventSource.readyState === 1 ? 'OPEN' :
+               eventSource.readyState === 2 ? 'CLOSED' : 'UNKNOWN') : 'null',
+            url: eventSource ? eventSource.url : 'null',
+            timestamp: new Date().toISOString()
+          });
+
+          // Check if it's just a connection close vs actual error
+          if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+            console.warn("EventSource closed permanently");
+            updateStatus("disconnected", "Connection closed by server");
+            disconnect();
+          } else if (eventSource && eventSource.readyState === EventSource.CONNECTING) {
+            console.warn("EventSource reconnecting...");
+            updateStatus("connecting", "Reconnecting...");
+            // Don't disconnect, let it try to reconnect
+          } else {
+            console.error("EventSource error in unknown state");
+            updateStatus("disconnected", "Connection error (see console)");
+            disconnect();
+          }
+        };
+      }
+
+      function disconnect() {
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+          updateStatus("disconnected", "Disconnected");
+        }
+      }
+
+      function clearTransactions() {
+        document.getElementById("transactionList").innerHTML =
+          '<div class="empty">No transactions yet</div>';
+        transactionCount = 0;
+        updateCount();
+      }
+
+      // Connect on Enter key
+      document
+        .getElementById("walletAddress")
+        .addEventListener("keypress", (e) => {
+          if (e.key === "Enter") {
+            connect();
+          }
+        });
+
+      // Cleanup on page unload
+      window.addEventListener("beforeunload", () => {
+        disconnect();
+      });
+    </script>
+  </body>
+</html>

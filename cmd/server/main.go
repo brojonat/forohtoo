@@ -75,8 +75,8 @@ func main() {
 	// Initialize HTTP server with scheduler and SSE publisher
 	httpServer := server.New(cfg.ServerAddr, store, temporalClient, ssePublisher, logger)
 
-	// Enable HTML template rendering
-	if err := httpServer.WithTemplates("web/templates"); err != nil {
+	// Enable HTML template rendering from embedded files
+	if err := httpServer.WithTemplates(); err != nil {
 		logger.Warn("failed to load HTML templates, web pages disabled", "error", err)
 	}
 
