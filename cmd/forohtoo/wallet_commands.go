@@ -540,18 +540,22 @@ func walletTransactionsCommand() *cli.Command {
 
 				fmt.Printf("Found %d transaction(s) for wallet %s:\n\n", len(transactions), address)
 				for i, txn := range transactions {
-					fmt.Printf("[%d] %s\n", i+1, txn.Signature[:16]+"...")
+					fmt.Printf("[%d] Signature: %s\n", i+1, txn.Signature)
+					fmt.Printf("    Wallet:    %s\n", txn.WalletAddress)
 					fmt.Printf("    Amount:    %.4f SOL\n", float64(txn.Amount)/1e9)
 					fmt.Printf("    Slot:      %d\n", txn.Slot)
 					fmt.Printf("    Status:    %s\n", txn.ConfirmationStatus)
 					if !txn.BlockTime.IsZero() {
-						fmt.Printf("    Time:      %s\n", txn.BlockTime.Format(time.RFC3339))
+						fmt.Printf("    Block Time: %s\n", txn.BlockTime.Format(time.RFC3339))
 					}
 					if txn.TokenType != "" {
 						fmt.Printf("    Token:     %s\n", txn.TokenType)
 					}
 					if txn.Memo != "" {
 						fmt.Printf("    Memo:      %s\n", txn.Memo)
+					}
+					if !txn.PublishedAt.IsZero() {
+						fmt.Printf("    Published: %s\n", txn.PublishedAt.Format(time.RFC3339))
 					}
 					fmt.Println()
 				}
