@@ -100,6 +100,9 @@ func (c *Client) GetTransactionsSince(
 			continue
 		}
 
+		// Add a small delay to respect RPC rate limits (Helius: ~10 RPS)
+		time.Sleep(100 * time.Millisecond)
+
 		var result *rpc.GetTransactionResult
 		var err error
 
