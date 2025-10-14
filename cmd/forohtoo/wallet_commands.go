@@ -38,7 +38,7 @@ func walletAddCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:    "server",
 				Aliases: []string{"s"},
-				Value:   "http://localhost:8080",
+				Value:   "https://forohtoo.brojonat.com",
 				Usage:   "HTTP server URL",
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
@@ -102,7 +102,7 @@ func walletRemoveCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:    "server",
 				Aliases: []string{"s"},
-				Value:   "http://localhost:8080",
+				Value:   "https://forohtoo.brojonat.com",
 				Usage:   "HTTP server URL",
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
@@ -157,7 +157,7 @@ func walletGetCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:    "server",
 				Aliases: []string{"s"},
-				Value:   "http://localhost:8080",
+				Value:   "https://forohtoo.brojonat.com",
 				Usage:   "HTTP server URL",
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
@@ -221,7 +221,7 @@ func walletListCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:    "server",
 				Aliases: []string{"s"},
-				Value:   "http://localhost:8080",
+				Value:   "https://forohtoo.brojonat.com",
 				Usage:   "HTTP server URL",
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
@@ -285,7 +285,7 @@ func awaitCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:    "server",
 				Aliases: []string{"s"},
-				Value:   "http://localhost:8080",
+				Value:   "https://forohtoo.brojonat.com",
 				Usage:   "HTTP server URL",
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
@@ -478,7 +478,7 @@ func walletTransactionsCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:    "server",
 				Aliases: []string{"s"},
-				Value:   "http://localhost:8080",
+				Value:   "https://forohtoo.brojonat.com",
 				Usage:   "HTTP server URL",
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
