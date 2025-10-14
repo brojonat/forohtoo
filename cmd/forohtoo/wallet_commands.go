@@ -545,7 +545,11 @@ func walletTransactionsCommand() *cli.Command {
 						fmt.Printf("    From:      %s\n", *txn.FromAddress)
 					}
 					fmt.Printf("    To:        %s\n", txn.WalletAddress)
-					fmt.Printf("    Amount:    %.4f SOL\n", float64(txn.Amount)/1e9)
+
+					// Format amount based on token type
+					amount, token := formatAmount(txn.Amount, txn.TokenType)
+					fmt.Printf("    Amount:    %s %s\n", amount, token)
+
 					fmt.Printf("    Slot:      %d\n", txn.Slot)
 					fmt.Printf("    Status:    %s\n", txn.ConfirmationStatus)
 					if !txn.BlockTime.IsZero() {
@@ -578,7 +582,11 @@ func printTransactionDetailed(txn *client.Transaction) {
 		fmt.Printf("From:        %s\n", *txn.FromAddress)
 	}
 	fmt.Printf("To:          %s\n", txn.WalletAddress)
-	fmt.Printf("Amount:      %.4f SOL\n", float64(txn.Amount)/1e9)
+
+	// Format amount based on token type
+	amount, token := formatAmount(txn.Amount, txn.TokenType)
+	fmt.Printf("Amount:      %s %s\n", amount, token)
+
 	fmt.Printf("Slot:        %d\n", txn.Slot)
 	fmt.Printf("Status:      %s\n", txn.ConfirmationStatus)
 
@@ -596,4 +604,24 @@ func printTransactionDetailed(txn *client.Transaction) {
 
 	fmt.Printf("Published:   %s\n", txn.PublishedAt.Format(time.RFC3339))
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+}
+
+// formatAmount formats a transaction amount based on the token type.
+// Returns the formatted amount string and token symbol.
+func formatAmount(amount int64, tokenType string) (string, string) {
+	// USDC mint address (6 decimals)
+	const usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+
+	if tokenType == "" {
+		// Native SOL (9 decimals)
+		return fmt.Sprintf("%.4f", float64(amount)/1e9), "SOL"
+	}
+
+	if tokenType == usdcMint {
+		// USDC (6 decimals)
+		return fmt.Sprintf("%.2f", float64(amount)/1e6), "USDC"
+	}
+
+	// Unknown SPL token - use 6 decimals as default for most SPL tokens
+	return fmt.Sprintf("%.6f", float64(amount)/1e6), "SPL"
 }
