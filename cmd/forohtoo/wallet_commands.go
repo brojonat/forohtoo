@@ -541,7 +541,10 @@ func walletTransactionsCommand() *cli.Command {
 				fmt.Printf("Found %d transaction(s) for wallet %s:\n\n", len(transactions), address)
 				for i, txn := range transactions {
 					fmt.Printf("[%d] Signature: %s\n", i+1, txn.Signature)
-					fmt.Printf("    Wallet:    %s\n", txn.WalletAddress)
+					if txn.FromAddress != nil {
+						fmt.Printf("    From:      %s\n", *txn.FromAddress)
+					}
+					fmt.Printf("    To:        %s\n", txn.WalletAddress)
 					fmt.Printf("    Amount:    %.4f SOL\n", float64(txn.Amount)/1e9)
 					fmt.Printf("    Slot:      %d\n", txn.Slot)
 					fmt.Printf("    Status:    %s\n", txn.ConfirmationStatus)
@@ -571,7 +574,10 @@ func printTransactionDetailed(txn *client.Transaction) {
 	fmt.Println("✓ Transaction Received")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("Signature:   %s\n", txn.Signature)
-	fmt.Printf("Wallet:      %s\n", txn.WalletAddress)
+	if txn.FromAddress != nil {
+		fmt.Printf("From:        %s\n", *txn.FromAddress)
+	}
+	fmt.Printf("To:          %s\n", txn.WalletAddress)
 	fmt.Printf("Amount:      %.4f SOL\n", float64(txn.Amount)/1e9)
 	fmt.Printf("Slot:        %d\n", txn.Slot)
 	fmt.Printf("Status:      %s\n", txn.ConfirmationStatus)

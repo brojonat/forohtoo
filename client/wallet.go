@@ -195,7 +195,8 @@ func responseToWallet(resp *walletResponse) (*Wallet, error) {
 type Transaction struct {
 	Signature          string    `json:"signature"`
 	Slot               int64     `json:"slot"`
-	WalletAddress      string    `json:"wallet_address"`
+	WalletAddress      string    `json:"wallet_address"`      // Destination/receiver wallet
+	FromAddress        *string   `json:"from_address,omitempty"` // Source/sender wallet
 	Amount             int64     `json:"amount"`
 	TokenType          string    `json:"token_type"`
 	Memo               string    `json:"memo,omitempty"`

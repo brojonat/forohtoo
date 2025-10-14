@@ -14,7 +14,8 @@ type TransactionEvent struct {
 	Slot      int64  `json:"slot"`
 
 	// Wallet information
-	WalletAddress string `json:"wallet_address"`
+	WalletAddress string  `json:"wallet_address"`      // Destination/receiver wallet
+	FromAddress   *string `json:"from_address,omitempty"` // Source/sender wallet
 
 	// Transaction details
 	Amount    int64  `json:"amount"`
@@ -36,6 +37,7 @@ func FromDBTransaction(txn *db.Transaction) *TransactionEvent {
 		Signature:          txn.Signature,
 		Slot:               txn.Slot,
 		WalletAddress:      txn.WalletAddress,
+		FromAddress:        txn.FromAddress,
 		Amount:             txn.Amount,
 		BlockTime:          txn.BlockTime,
 		Timestamp:          txn.CreatedAt,

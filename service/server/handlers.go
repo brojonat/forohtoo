@@ -519,7 +519,7 @@ type transactionResponse struct {
 	Slot               int64      `json:"slot"`
 	BlockTime          time.Time  `json:"block_time"`
 	Amount             int64      `json:"amount"`
-	TokenMint          *string    `json:"token_mint,omitempty"`
+	TokenType          *string    `json:"token_type,omitempty"`
 	Memo               *string    `json:"memo,omitempty"`
 	ConfirmationStatus string     `json:"confirmation_status"`
 	CreatedAt          time.Time  `json:"created_at"`
@@ -534,7 +534,7 @@ func transactionToResponse(t *db.Transaction) transactionResponse {
 		Slot:               t.Slot,
 		BlockTime:          t.BlockTime,
 		Amount:             t.Amount,
-		TokenMint:          t.TokenMint,
+		TokenType:          t.TokenMint,
 		Memo:               t.Memo,
 		ConfirmationStatus: t.ConfirmationStatus,
 		CreatedAt:          t.CreatedAt,
