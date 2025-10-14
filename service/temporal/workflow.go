@@ -62,7 +62,7 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 	pollInput := PollSolanaInput{
 		Address:            input.Address,
 		LastSignature:      lastSignature,
-		Limit:              100,
+		Limit:              1000, // Increased from 100 to catch more transactions
 		ExistingSignatures: existingSigsResult.Signatures,
 	}
 
