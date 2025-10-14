@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: worker
-        image: brojonat/forohtoo:9882909ae64bd71cc9c41840ead553da1eb23b4c
+        image: brojonat/forohtoo:3866dbc716b2a4b6f30c7b21c88bd96452db50b0
         imagePullPolicy: Always
         command: ["/worker"]
         envFrom:
