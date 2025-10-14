@@ -4,11 +4,36 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/brojonat/forohtoo/service/solana"
+	solanago "github.com/gagliardetto/solana-go"
 	temporalsdk "go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
 var a *Activities // for type-safe activity invocation
+
+// getUSDCAssociatedTokenAccount calculates the associated token account for USDC.
+// Returns empty string if the wallet address is invalid.
+func getUSDCAssociatedTokenAccount(walletAddress string) string {
+	const usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+
+	wallet, err := solanago.PublicKeyFromBase58(walletAddress)
+	if err != nil {
+		return ""
+	}
+
+	mint, err := solanago.PublicKeyFromBase58(usdcMint)
+	if err != nil {
+		return ""
+	}
+
+	ata, _, err := solanago.FindAssociatedTokenAddress(wallet, mint)
+	if err != nil {
+		return ""
+	}
+
+	return ata.String()
+}
 
 // PollWalletWorkflow is the Temporal workflow that polls a Solana wallet for new transactions.
 // It is triggered by a Temporal schedule at a configured interval (e.g., every 30 seconds).
@@ -57,22 +82,102 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 	logger.Info("got existing transaction signatures", "count", len(existingSigsResult.Signatures))
 
 	// Step 2: Poll Solana for new transactions
+	// Query both the main wallet address AND the USDC associated token account
+	// to capture all relevant transactions (SOL transfers and USDC transfers)
 	logger.Debug("polling solana", "address", input.Address, "last_signature", lastSignature)
 
-	pollInput := PollSolanaInput{
+	// Poll main wallet address
+	mainWalletInput := PollSolanaInput{
 		Address:            input.Address,
 		LastSignature:      lastSignature,
-		Limit:              1000, // Increased from 100 to catch more transactions
+		Limit:              1000,
 		ExistingSignatures: existingSigsResult.Signatures,
 	}
 
-	var pollResult *PollSolanaResult
-	err = workflow.ExecuteActivity(ctx, a.PollSolana, pollInput).Get(ctx, &pollResult)
+	var mainWalletResult *PollSolanaResult
+	err = workflow.ExecuteActivity(ctx, a.PollSolana, mainWalletInput).Get(ctx, &mainWalletResult)
 	if err != nil {
-		logger.Error("failed to poll solana", "address", input.Address, "error", err)
-		errMsg := fmt.Sprintf("failed to poll solana: %v", err)
+		logger.Error("failed to poll main wallet", "address", input.Address, "error", err)
+		errMsg := fmt.Sprintf("failed to poll main wallet: %v", err)
 		result.Error = &errMsg
-		return result, fmt.Errorf("failed to poll solana: %w", err)
+		return result, fmt.Errorf("failed to poll main wallet: %w", err)
+	}
+
+	logger.Info("polled main wallet successfully",
+		"address", input.Address,
+		"transaction_count", len(mainWalletResult.Transactions),
+	)
+
+	// Poll USDC associated token account
+	usdcATA := getUSDCAssociatedTokenAccount(input.Address)
+	allTransactions := mainWalletResult.Transactions
+
+	if usdcATA != "" {
+		usdcATAInput := PollSolanaInput{
+			Address:            usdcATA,
+			LastSignature:      lastSignature,
+			Limit:              1000,
+			ExistingSignatures: existingSigsResult.Signatures,
+		}
+
+		var usdcATAResult *PollSolanaResult
+		err = workflow.ExecuteActivity(ctx, a.PollSolana, usdcATAInput).Get(ctx, &usdcATAResult)
+		if err != nil {
+			// Log error but don't fail the workflow - continue with main wallet transactions
+			logger.Warn("failed to poll USDC ATA", "ata", usdcATA, "error", err)
+		} else {
+			logger.Info("polled USDC ATA successfully",
+				"ata", usdcATA,
+				"transaction_count", len(usdcATAResult.Transactions),
+			)
+
+			// Merge transactions and deduplicate by signature
+			seenSignatures := make(map[string]bool)
+			for _, txn := range mainWalletResult.Transactions {
+				seenSignatures[txn.Signature] = true
+			}
+
+			for _, txn := range usdcATAResult.Transactions {
+				if !seenSignatures[txn.Signature] {
+					allTransactions = append(allTransactions, txn)
+					seenSignatures[txn.Signature] = true
+				}
+			}
+
+			logger.Info("merged transactions from both addresses",
+				"main_wallet_count", len(mainWalletResult.Transactions),
+				"usdc_ata_count", len(usdcATAResult.Transactions),
+				"total_unique_count", len(allTransactions),
+			)
+		}
+	}
+
+	// Create merged result
+	pollResult := &PollSolanaResult{
+		Transactions: allTransactions,
+	}
+
+	// Extract newest and oldest signatures from merged transactions
+	if len(pollResult.Transactions) > 0 {
+		// Find newest signature (highest slot)
+		var newestTxn *solana.Transaction
+		var oldestTxn *solana.Transaction
+
+		for _, txn := range pollResult.Transactions {
+			if newestTxn == nil || txn.Slot > newestTxn.Slot {
+				newestTxn = txn
+			}
+			if oldestTxn == nil || txn.Slot < oldestTxn.Slot {
+				oldestTxn = txn
+			}
+		}
+
+		if newestTxn != nil {
+			pollResult.NewestSignature = &newestTxn.Signature
+		}
+		if oldestTxn != nil {
+			pollResult.OldestSignature = &oldestTxn.Signature
+		}
 	}
 
 	logger.Info("polled solana successfully",
