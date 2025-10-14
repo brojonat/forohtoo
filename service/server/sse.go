@@ -90,7 +90,76 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 			"remote_addr", r.RemoteAddr,
 		)
 
-		// Create ephemeral consumer for this connection
+		// Send initial connection event
+		fmt.Fprintf(w, "event: connected\ndata: {\"wallet\":\"%s\"}\n\n", walletDesc)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+
+		// Fetch and send the last 100 transactions from the stream as historical data
+		// Create a temporary consumer to fetch last 100 messages
+		{
+			tempCons, err := publisher.js.CreateOrUpdateConsumer(r.Context(), natspkg.StreamName, jetstream.ConsumerConfig{
+				FilterSubject: subject,
+				AckPolicy:     jetstream.AckExplicitPolicy,
+				DeliverPolicy: jetstream.DeliverLastPerSubjectPolicy,
+				MaxAckPending: 100,
+				// Ephemeral consumer
+			})
+			if err != nil {
+				logger.WarnContext(r.Context(), "failed to create temp consumer for history",
+					"error", err,
+				)
+			} else {
+				// Fetch up to 100 messages
+				msgs, err := tempCons.Fetch(100, jetstream.FetchMaxWait(2*time.Second))
+				if err != nil && err != jetstream.ErrNoMessages {
+					logger.WarnContext(r.Context(), "failed to fetch historical messages",
+						"error", err,
+					)
+				} else {
+					historicalCount := 0
+					for msg := range msgs.Messages() {
+						var event natspkg.TransactionEvent
+						if err := json.Unmarshal(msg.Data(), &event); err != nil {
+							logger.WarnContext(r.Context(), "failed to unmarshal historical event",
+								"error", err,
+							)
+							msg.Ack()
+							continue
+						}
+
+						// Send historical transaction event
+						data, err := json.Marshal(event)
+						if err != nil {
+							logger.WarnContext(r.Context(), "failed to marshal historical event",
+								"error", err,
+							)
+							msg.Ack()
+							continue
+						}
+
+						fmt.Fprintf(w, "event: transaction\ndata: %s\n\n", string(data))
+						msg.Ack()
+						historicalCount++
+					}
+
+					if historicalCount > 0 {
+						logger.DebugContext(r.Context(), "sent historical transactions",
+							"wallet", walletDesc,
+							"count", historicalCount,
+						)
+						if flusher, ok := w.(http.Flusher); ok {
+							flusher.Flush()
+						}
+					}
+				}
+				// Delete ephemeral consumer
+				publisher.js.DeleteConsumer(r.Context(), natspkg.StreamName, tempCons.CachedInfo().Name)
+			}
+		}
+
+		// Create ephemeral consumer for ongoing streaming
 		cons, err := publisher.js.CreateOrUpdateConsumer(r.Context(), natspkg.StreamName, jetstream.ConsumerConfig{
 			FilterSubject: subject,
 			AckPolicy:     jetstream.AckExplicitPolicy,
@@ -130,12 +199,6 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 			<-r.Context().Done()
 			cc.Stop()
 		}()
-
-		// Send initial connection event
-		fmt.Fprintf(w, "event: connected\ndata: {\"wallet\":\"%s\"}\n\n", walletDesc)
-		if flusher, ok := w.(http.Flusher); ok {
-			flusher.Flush()
-		}
 
 		// Create ticker for keepalive comments (every 10 seconds)
 		keepalive := time.NewTicker(10 * time.Second)

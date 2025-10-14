@@ -149,6 +149,8 @@ func (c *Client) GetTransactionsSince(
 				"attempt", attempt+1,
 				"error", err,
 			)
+			// Sleep before retrying to avoid hammering the endpoint
+			time.Sleep(2 * time.Second)
 		}
 
 		if err != nil {

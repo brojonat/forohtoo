@@ -74,11 +74,12 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 
 	// Register activities
 	// Activities are registered by name, matching the ExecuteActivity calls in the workflow
+	w.RegisterActivity(activities.GetExistingTransactionSignatures)
 	w.RegisterActivity(activities.PollSolana)
 	w.RegisterActivity(activities.WriteTransactions)
 
 	logger.Info("registered activities",
-		"activities", []string{"PollSolana", "WriteTransactions"},
+		"activities", []string{"GetExistingTransactionSignatures", "PollSolana", "WriteTransactions"},
 	)
 
 	return &Worker{

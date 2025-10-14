@@ -262,9 +262,10 @@ func createScheduleCommand() *cli.Command {
 		ArgsUsage: "<wallet-address> <poll-interval>",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:  "task-queue",
-				Usage: "Task queue name",
-				Value: "forohtoo-wallet-polling",
+				Name:    "task-queue",
+				Usage:   "Task queue name",
+				Value:   getEnvOrDefault("TEMPORAL_TASK_QUEUE", "forohtoo-wallet-polling"),
+				EnvVars: []string{"TEMPORAL_TASK_QUEUE"},
 			},
 		},
 		Action: func(c *cli.Context) error {
@@ -341,9 +342,10 @@ func recreateScheduleCommand() *cli.Command {
 		ArgsUsage: "<wallet-address> <poll-interval>",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:  "task-queue",
-				Usage: "Task queue name",
-				Value: "forohtoo-wallet-polling",
+				Name:    "task-queue",
+				Usage:   "Task queue name",
+				Value:   getEnvOrDefault("TEMPORAL_TASK_QUEUE", "forohtoo-wallet-polling"),
+				EnvVars: []string{"TEMPORAL_TASK_QUEUE"},
 			},
 		},
 		Action: func(c *cli.Context) error {
@@ -605,6 +607,14 @@ func reconcileCommand() *cli.Command {
 			return nil
 		},
 	}
+}
+
+// getEnvOrDefault returns the environment variable value or a default if not set.
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }
 
 // Helper function to connect to Temporal

@@ -54,7 +54,7 @@ func createTestSchedule(t *testing.T, temporalClient client.Client, address stri
 	}
 
 	workflowAction := client.ScheduleWorkflowAction{
-		ID:        "poll-wallet-" + address + "-{{.ScheduledTime.Unix}}",
+		ID:        "poll-wallet-" + address,
 		Workflow:  "PollWalletWorkflow",
 		TaskQueue: "forohtoo-wallet-polling-test",
 		Args:      []interface{}{address},
