@@ -2,9 +2,12 @@ package solana
 
 import (
 	"context"
+	"net/http"
+	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
 )
 
 // realRPCClient adapts the actual solana-go RPC client to our RPCClient interface.
@@ -18,9 +21,21 @@ type realRPCClient struct {
 // - Helius: https://mainnet.helius-rpc.com/?api-key=YOUR-KEY
 // - QuickNode: https://YOUR-ENDPOINT.quiknode.pro/YOUR-KEY/
 // - Alchemy: https://solana-mainnet.g.alchemy.com/v2/YOUR-KEY
+//
+// Configures HTTP client with 60-second timeout to handle slow RPC responses.
 func NewRPCClient(rpcURL string) RPCClient {
+	// Create HTTP client with longer timeout
+	httpClient := &http.Client{
+		Timeout: 60 * time.Second,
+	}
+
+	// Create JSON-RPC client with custom HTTP client
+	jsonrpcClient := jsonrpc.NewClientWithOpts(rpcURL, &jsonrpc.RPCClientOpts{
+		HTTPClient: httpClient,
+	})
+
 	return &realRPCClient{
-		client: rpc.New(rpcURL),
+		client: rpc.NewWithCustomRPCClient(jsonrpcClient),
 	}
 }
 

@@ -100,9 +100,6 @@ func (c *Client) GetTransactionsSince(
 			continue
 		}
 
-		// Add a small delay to avoid overwhelming the RPC endpoint.
-		time.Sleep(1 * time.Second)
-
 		var result *rpc.GetTransactionResult
 		var err error
 
