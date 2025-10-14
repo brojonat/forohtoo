@@ -56,6 +56,7 @@ func (s *Server) Start() error {
 	mux.Handle("DELETE /api/v1/wallets/{address}", handleUnregisterWalletWithScheduler(s.store, s.scheduler, s.logger))
 	mux.Handle("GET /api/v1/wallets/{address}", handleGetWallet(s.store, s.logger))
 	mux.Handle("GET /api/v1/wallets", handleListWallets(s.store, s.logger))
+	mux.Handle("GET /api/v1/transactions", handleListTransactions(s.store, s.logger))
 
 	// SSE streaming endpoints (if SSE publisher is configured)
 	if s.ssePublisher != nil {

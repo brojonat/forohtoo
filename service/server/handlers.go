@@ -427,3 +427,116 @@ type validationError struct {
 func (e *validationError) Error() string {
 	return e.msg
 }
+
+// handleListTransactions returns a handler that lists transactions for a specific wallet.
+// GET /api/v1/transactions?wallet_address=ADDRESS&limit=N&offset=N
+func handleListTransactions(store *db.Store, logger *slog.Logger) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		walletAddress := query.Get("wallet_address")
+
+		// wallet_address is required
+		if walletAddress == "" {
+			writeError(w, "wallet_address query parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		// Validate address format
+		if err := validateAddress(walletAddress); err != nil {
+			logger.Debug("invalid address", "address", walletAddress, "error", err)
+			writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Parse limit (default 100, max 1000)
+		limit := int32(100)
+		if limitStr := query.Get("limit"); limitStr != "" {
+			var parsedLimit int
+			if _, err := fmt.Sscanf(limitStr, "%d", &parsedLimit); err != nil {
+				writeError(w, "invalid limit parameter: must be an integer", http.StatusBadRequest)
+				return
+			}
+			if parsedLimit < 1 {
+				writeError(w, "limit must be at least 1", http.StatusBadRequest)
+				return
+			}
+			if parsedLimit > 1000 {
+				writeError(w, "limit cannot exceed 1000", http.StatusBadRequest)
+				return
+			}
+			limit = int32(parsedLimit)
+		}
+
+		// Parse offset (default 0)
+		offset := int32(0)
+		if offsetStr := query.Get("offset"); offsetStr != "" {
+			var parsedOffset int
+			if _, err := fmt.Sscanf(offsetStr, "%d", &parsedOffset); err != nil {
+				writeError(w, "invalid offset parameter: must be an integer", http.StatusBadRequest)
+				return
+			}
+			if parsedOffset < 0 {
+				writeError(w, "offset cannot be negative", http.StatusBadRequest)
+				return
+			}
+			offset = int32(parsedOffset)
+		}
+
+		// Query transactions
+		transactions, err := store.ListTransactionsByWallet(r.Context(), db.ListTransactionsByWalletParams{
+			WalletAddress: walletAddress,
+			Limit:         limit,
+			Offset:        offset,
+		})
+		if err != nil {
+			logger.Error("failed to list transactions", "wallet", walletAddress, "error", err)
+			writeError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		logger.Debug("transactions listed", "wallet", walletAddress, "count", len(transactions))
+
+		// Convert to response format
+		resp := make([]transactionResponse, len(transactions))
+		for i := range transactions {
+			resp[i] = transactionToResponse(transactions[i])
+		}
+
+		writeJSON(w, map[string]interface{}{
+			"transactions": resp,
+			"count":        len(resp),
+			"limit":        limit,
+			"offset":       offset,
+		}, http.StatusOK)
+	})
+}
+
+// transactionResponse is the JSON response format for a transaction.
+type transactionResponse struct {
+	Signature          string     `json:"signature"`
+	WalletAddress      string     `json:"wallet_address"`
+	FromAddress        *string    `json:"from_address,omitempty"`
+	Slot               int64      `json:"slot"`
+	BlockTime          time.Time  `json:"block_time"`
+	Amount             int64      `json:"amount"`
+	TokenMint          *string    `json:"token_mint,omitempty"`
+	Memo               *string    `json:"memo,omitempty"`
+	ConfirmationStatus string     `json:"confirmation_status"`
+	CreatedAt          time.Time  `json:"created_at"`
+}
+
+// transactionToResponse converts a domain Transaction to a response format.
+func transactionToResponse(t *db.Transaction) transactionResponse {
+	return transactionResponse{
+		Signature:          t.Signature,
+		WalletAddress:      t.WalletAddress,
+		FromAddress:        t.FromAddress,
+		Slot:               t.Slot,
+		BlockTime:          t.BlockTime,
+		Amount:             t.Amount,
+		TokenMint:          t.TokenMint,
+		Memo:               t.Memo,
+		ConfirmationStatus: t.ConfirmationStatus,
+		CreatedAt:          t.CreatedAt,
+	}
+}

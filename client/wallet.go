@@ -333,6 +333,49 @@ func (c *Client) handleSSEEvent(eventType, data string, matcher func(*Transactio
 	}
 }
 
+// ListTransactions retrieves transactions for a specific wallet.
+func (c *Client) ListTransactions(ctx context.Context, walletAddress string, limit, offset int) ([]*Transaction, error) {
+	u := fmt.Sprintf("%s/api/v1/transactions?wallet_address=%s&limit=%d&offset=%d",
+		c.baseURL,
+		url.QueryEscape(walletAddress),
+		limit,
+		offset,
+	)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.parseErrorResponse(resp)
+	}
+
+	var response struct {
+		Transactions []Transaction `json:"transactions"`
+		Count        int           `json:"count"`
+		Limit        int           `json:"limit"`
+		Offset       int           `json:"offset"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Convert to pointers for consistency with other methods
+	transactions := make([]*Transaction, len(response.Transactions))
+	for i := range response.Transactions {
+		transactions[i] = &response.Transactions[i]
+	}
+
+	return transactions, nil
+}
+
 // parseErrorResponse attempts to parse an error response from the server.
 func (c *Client) parseErrorResponse(resp *http.Response) error {
 	var errResp struct {

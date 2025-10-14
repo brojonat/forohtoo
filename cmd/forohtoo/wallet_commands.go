@@ -22,6 +22,7 @@ func walletCommands() *cli.Command {
 			walletRemoveCommand(),
 			walletGetCommand(),
 			walletListCommand(),
+			walletTransactionsCommand(),
 			awaitCommand(),
 		},
 	}
@@ -465,6 +466,100 @@ func isTruthy(v interface{}) bool {
 	}
 	// Everything else (numbers, strings, objects, arrays) is truthy
 	return true
+}
+
+func walletTransactionsCommand() *cli.Command {
+	return &cli.Command{
+		Name:      "transactions",
+		Aliases:   []string{"txns", "tx"},
+		Usage:     "List transactions for a wallet",
+		ArgsUsage: "WALLET_ADDRESS",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "server",
+				Aliases: []string{"s"},
+				Value:   "http://localhost:8080",
+				Usage:   "HTTP server URL",
+				EnvVars: []string{"FOROHTOO_SERVER_URL"},
+			},
+			&cli.IntFlag{
+				Name:    "limit",
+				Aliases: []string{"l"},
+				Value:   20,
+				Usage:   "Maximum number of transactions to retrieve (1-1000)",
+			},
+			&cli.IntFlag{
+				Name:    "offset",
+				Aliases: []string{"o"},
+				Value:   0,
+				Usage:   "Number of transactions to skip",
+			},
+			&cli.BoolFlag{
+				Name:    "json",
+				Aliases: []string{"j"},
+				Usage:   "Output as JSON",
+			},
+		},
+		Action: func(c *cli.Context) error {
+			if c.NArg() < 1 {
+				return fmt.Errorf("wallet address is required")
+			}
+
+			address := c.Args().Get(0)
+			serverURL := c.String("server")
+			limit := c.Int("limit")
+			offset := c.Int("offset")
+			jsonOutput := c.Bool("json")
+
+			if limit < 1 || limit > 1000 {
+				return fmt.Errorf("limit must be between 1 and 1000")
+			}
+			if offset < 0 {
+				return fmt.Errorf("offset cannot be negative")
+			}
+
+			logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+				Level: slog.LevelError,
+			}))
+
+			cl := client.NewClient(serverURL, nil, logger)
+
+			transactions, err := cl.ListTransactions(context.Background(), address, limit, offset)
+			if err != nil {
+				return fmt.Errorf("failed to list transactions: %w", err)
+			}
+
+			if jsonOutput {
+				data, _ := json.MarshalIndent(transactions, "", "  ")
+				fmt.Println(string(data))
+			} else {
+				if len(transactions) == 0 {
+					fmt.Println("No transactions found")
+					return nil
+				}
+
+				fmt.Printf("Found %d transaction(s) for wallet %s:\n\n", len(transactions), address)
+				for i, txn := range transactions {
+					fmt.Printf("[%d] %s\n", i+1, txn.Signature[:16]+"...")
+					fmt.Printf("    Amount:    %.4f SOL\n", float64(txn.Amount)/1e9)
+					fmt.Printf("    Slot:      %d\n", txn.Slot)
+					fmt.Printf("    Status:    %s\n", txn.ConfirmationStatus)
+					if !txn.BlockTime.IsZero() {
+						fmt.Printf("    Time:      %s\n", txn.BlockTime.Format(time.RFC3339))
+					}
+					if txn.TokenType != "" {
+						fmt.Printf("    Token:     %s\n", txn.TokenType)
+					}
+					if txn.Memo != "" {
+						fmt.Printf("    Memo:      %s\n", txn.Memo)
+					}
+					fmt.Println()
+				}
+			}
+
+			return nil
+		},
+	}
 }
 
 func printTransactionDetailed(txn *client.Transaction) {
