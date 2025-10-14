@@ -22,6 +22,7 @@ LIMIT 1;
 -- name: ListTransactionsByWallet :many
 SELECT * FROM transactions
 WHERE wallet_address = $1
+  AND from_address IS NOT NULL
 ORDER BY block_time DESC
 LIMIT $2 OFFSET $3;
 
