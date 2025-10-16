@@ -1,6 +1,6 @@
 # Solana Wallet Payment Service
 
-TODO: update workflowID to have a "forohtoo-" prefix.
+TODO: update workflowID to have a "forohtoo-" prefix and or use a different namespace.
 
 A Go-based service and client library for polling Solana wallets and integrating payment verification into Temporal workflows. This system decouples Solana RPC polling from client applications, enabling efficient payment tracking across multiple services without rate limit concerns.
 
