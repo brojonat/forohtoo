@@ -70,7 +70,7 @@ func (c *Client) Register(ctx context.Context, address string, pollInterval time
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+	if resp.StatusCode != http.StatusCreated {
 		return c.parseErrorResponse(resp)
 	}
 
