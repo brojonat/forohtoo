@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/brojonat/forohtoo/service/db"
+	"github.com/brojonat/forohtoo/service/temporal"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,7 +45,8 @@ func setupTestStore(t *testing.T) *db.Store {
 func TestRegisterWallet_PathologicalInput(t *testing.T) {
 	store := setupTestStore(t)
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	handler := handleRegisterWallet(store, logger)
+	scheduler := temporal.NewMockScheduler()
+	handler := handleRegisterWalletWithScheduler(store, scheduler, logger)
 
 	tests := []struct {
 		name           string
@@ -197,7 +199,8 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 func TestRegisterWallet_ValidInput(t *testing.T) {
 	store := setupTestStore(t)
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	handler := handleRegisterWallet(store, logger)
+	scheduler := temporal.NewMockScheduler()
+	handler := handleRegisterWalletWithScheduler(store, scheduler, logger)
 
 	tests := []struct {
 		name     string

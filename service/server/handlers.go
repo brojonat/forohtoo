@@ -27,77 +27,6 @@ var (
 	validAddressRegex = regexp.MustCompile(`^[1-9A-HJ-NP-Za-km-z]+$`)
 )
 
-// handleRegisterWallet returns a handler that registers a new wallet for monitoring.
-// POST /api/v1/wallets
-func handleRegisterWallet(store *db.Store, logger *slog.Logger) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Limit request body size to prevent memory exhaustion
-		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
-
-		var req struct {
-			Address      string `json:"address"`
-			PollInterval string `json:"poll_interval"`
-		}
-
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			logger.Debug("failed to decode register request", "error", err)
-			// Check if error is due to body size limit
-			if strings.Contains(err.Error(), "http: request body too large") {
-				writeError(w, "request body too large: maximum size is 1MB", http.StatusBadRequest)
-				return
-			}
-			writeError(w, "invalid request body: must be valid JSON", http.StatusBadRequest)
-			return
-		}
-
-		// Validate address
-		if err := validateAddress(req.Address); err != nil {
-			logger.Debug("invalid address", "address", req.Address, "error", err)
-			writeError(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		// Parse and validate poll interval
-		pollInterval, err := time.ParseDuration(req.PollInterval)
-		if err != nil {
-			logger.Debug("invalid poll interval", "interval", req.PollInterval, "error", err)
-			writeError(w, "invalid poll_interval: must be a valid duration (e.g. '30s', '1m')", http.StatusBadRequest)
-			return
-		}
-
-		if err := validatePollInterval(pollInterval); err != nil {
-			logger.Debug("invalid poll interval value", "interval", pollInterval, "error", err)
-			writeError(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		// Create wallet
-		params := db.CreateWalletParams{
-			Address:      req.Address,
-			PollInterval: pollInterval,
-			Status:       "active",
-		}
-
-		wallet, err := store.CreateWallet(r.Context(), params)
-		if err != nil {
-			logger.Error("failed to create wallet", "address", req.Address, "error", err)
-			// Check for duplicate key error
-			if strings.Contains(err.Error(), "duplicate key") {
-				writeError(w, "failed to register wallet: wallet already exists", http.StatusConflict)
-				return
-			}
-			writeError(w, "failed to register wallet", http.StatusInternalServerError)
-			return
-		}
-
-		logger.Info("wallet registered", "address", wallet.Address, "poll_interval", wallet.PollInterval)
-
-		// Return wallet
-		resp := walletToResponse(wallet)
-		writeJSON(w, resp, http.StatusCreated)
-	})
-}
-
 // handleUnregisterWallet returns a handler that unregisters a wallet.
 // DELETE /api/v1/wallets/{address}
 func handleUnregisterWallet(store *db.Store, logger *slog.Logger) http.Handler {
@@ -513,16 +442,16 @@ func handleListTransactions(store *db.Store, logger *slog.Logger) http.Handler {
 
 // transactionResponse is the JSON response format for a transaction.
 type transactionResponse struct {
-	Signature          string     `json:"signature"`
-	WalletAddress      string     `json:"wallet_address"`
-	FromAddress        *string    `json:"from_address,omitempty"`
-	Slot               int64      `json:"slot"`
-	BlockTime          time.Time  `json:"block_time"`
-	Amount             int64      `json:"amount"`
-	TokenType          *string    `json:"token_type,omitempty"`
-	Memo               *string    `json:"memo,omitempty"`
-	ConfirmationStatus string     `json:"confirmation_status"`
-	CreatedAt          time.Time  `json:"created_at"`
+	Signature          string    `json:"signature"`
+	WalletAddress      string    `json:"wallet_address"`
+	FromAddress        *string   `json:"from_address,omitempty"`
+	Slot               int64     `json:"slot"`
+	BlockTime          time.Time `json:"block_time"`
+	Amount             int64     `json:"amount"`
+	TokenType          *string   `json:"token_type,omitempty"`
+	Memo               *string   `json:"memo,omitempty"`
+	ConfirmationStatus string    `json:"confirmation_status"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 // transactionToResponse converts a domain Transaction to a response format.

@@ -70,7 +70,7 @@ func (c *Client) Register(ctx context.Context, address string, pollInterval time
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
 		return c.parseErrorResponse(resp)
 	}
 
@@ -195,7 +195,7 @@ func responseToWallet(resp *walletResponse) (*Wallet, error) {
 type Transaction struct {
 	Signature          string    `json:"signature"`
 	Slot               int64     `json:"slot"`
-	WalletAddress      string    `json:"wallet_address"`      // Destination/receiver wallet
+	WalletAddress      string    `json:"wallet_address"`         // Destination/receiver wallet
 	FromAddress        *string   `json:"from_address,omitempty"` // Source/sender wallet
 	Amount             int64     `json:"amount"`
 	TokenType          string    `json:"token_type"`
