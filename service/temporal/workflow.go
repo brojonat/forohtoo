@@ -68,7 +68,7 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 
 	// Configure activity options
 	activityOptions := workflow.ActivityOptions{
-		StartToCloseTimeout: 300 * time.Second,
+		StartToCloseTimeout: 600 * time.Second, // 10 minutes (up from 5) to handle rate limits and retries
 		RetryPolicy: &temporalsdk.RetryPolicy{
 			InitialInterval:    time.Second,
 			BackoffCoefficient: 2.0,
@@ -95,10 +95,12 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 	logger.Debug("polling solana", "address", input.Address, "last_signature", lastSignature)
 
 	// Poll main wallet address
+	// Limit reduced to 20 for public RPC compatibility
+	// At 600ms per transaction, 20 txns = ~12 seconds fetch time
 	mainWalletInput := PollSolanaInput{
 		Address:            input.Address,
 		LastSignature:      lastSignature,
-		Limit:              1000,
+		Limit:              20,
 		ExistingSignatures: existingSigsResult.Signatures,
 	}
 
@@ -124,7 +126,7 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 		usdcATAInput := PollSolanaInput{
 			Address:            usdcATA,
 			LastSignature:      lastSignature,
-			Limit:              1000,
+			Limit:              20, // Same limit as main wallet for public RPC
 			ExistingSignatures: existingSigsResult.Signatures,
 		}
 

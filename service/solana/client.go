@@ -126,14 +126,19 @@ func (c *Client) GetTransactionsSince(
 			continue
 		}
 
-		// Add a small delay to respect RPC rate limits (Helius: ~10 RPS)
-		time.Sleep(100 * time.Millisecond)
+		// Add a delay to respect RPC rate limits
+		// Public mainnet: very conservative (1-2 RPS max)
+		// Helius/Premium: can be reduced to 100-150ms
+		time.Sleep(600 * time.Millisecond)
 
 		var result *rpc.GetTransactionResult
 		var err error
 
-		// Retry logic for fetching transaction details
-		for attempt := range 10 {
+		// Retry logic with exponential backoff
+		// Public RPC: 3 attempts max to avoid long delays
+		// Premium RPC: can increase to 5
+		const maxAttempts = 3
+		for attempt := range maxAttempts {
 			// Fetch full transaction details with support for versioned transactions
 			txnOpts := &rpc.GetTransactionOpts{
 				Encoding:                       solana.EncodingBase64,
@@ -156,18 +161,20 @@ func (c *Client) GetTransactionsSince(
 				break // Success
 			}
 
-			// Handle rate limiting (429 Too Many Requests)
+			// Handle rate limiting (429 Too Many Requests) with longer backoff
 			if strings.Contains(err.Error(), "429") {
+				backoff := time.Duration(2<<uint(attempt)) * time.Second // 2s, 4s, 8s, 16s, 32s
 				c.logger.WarnContext(ctx, "rate limited, sleeping before retry",
 					"signature", sig.Signature.String(),
 					"attempt", attempt+1,
+					"backoff_seconds", backoff.Seconds(),
 				)
 				// Record rate limit hit
 				if c.metrics != nil {
 					c.metrics.RecordRateLimitHit(c.endpoint)
 					c.metrics.RecordRPCRetry("GetTransaction", "rate_limit")
 				}
-				time.Sleep(5 * time.Second)
+				time.Sleep(backoff)
 				continue // Sleep and try again
 			}
 
@@ -204,13 +211,19 @@ func (c *Client) GetTransactionsSince(
 				}
 			}
 
+			// Exponential backoff for other errors (timeout, network, etc.)
+			backoff := time.Duration(1<<uint(attempt)) * time.Second // 1s, 2s, 4s, 8s, 16s
 			c.logger.WarnContext(ctx, "failed to get transaction on attempt",
 				"signature", sig.Signature.String(),
 				"attempt", attempt+1,
 				"error", err,
+				"backoff_seconds", backoff.Seconds(),
 			)
-			// Sleep before retrying to avoid hammering the endpoint
-			time.Sleep(2 * time.Second)
+			// Record retry
+			if c.metrics != nil {
+				c.metrics.RecordRPCRetry("GetTransaction", "timeout_or_error")
+			}
+			time.Sleep(backoff)
 		}
 
 		if err != nil {

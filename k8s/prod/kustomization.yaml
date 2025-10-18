@@ -7,7 +7,7 @@ resources:
 images:
 - name: forohtoo
   newName: brojonat/forohtoo
-  newTag: b7b7b743f4027a087f5db0f5bd0caa3e9bec4bea
+  newTag: 9f10fb2da56383b882751c6843d6c0c751a47a51
 
 secretGenerator:
 - envs:
