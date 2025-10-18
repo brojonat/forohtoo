@@ -46,7 +46,7 @@ func TestServerIntegration(t *testing.T) {
 
 	// Create test server on random port
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := server.New(":0", store, scheduler, nil, logger) // :0 assigns random available port, nil for SSE
+	srv := server.New(":0", store, scheduler, nil, nil, logger) // :0 assigns random available port, nil for SSE and metrics
 
 	// Start server in background
 	serverAddr := make(chan string, 1)
@@ -55,7 +55,7 @@ func TestServerIntegration(t *testing.T) {
 		// We need to get the actual address after the server starts
 		// For now, use a fixed test port
 		testAddr := "localhost:18080"
-		srv = server.New(testAddr, store, scheduler, nil, logger)
+		srv = server.New(testAddr, store, scheduler, nil, nil, logger) // nil for SSE and metrics
 		serverAddr <- testAddr
 		serverErrors <- srv.Start()
 	}()
@@ -178,7 +178,7 @@ func TestHealthEndpoint(t *testing.T) {
 	scheduler := temporal.NewMockScheduler()
 
 	testAddr := "localhost:18081"
-	srv := server.New(testAddr, store, scheduler, nil, logger)
+	srv := server.New(testAddr, store, scheduler, nil, nil, logger) // nil for SSE and metrics
 
 	// Start server
 	go srv.Start()
