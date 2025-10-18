@@ -1,18 +1,20 @@
 resources:
-  - server.yaml
-  - worker.yaml
-  - ingress.yaml
+- server.yaml
+- worker.yaml
+- ingress.yaml
 
 # Kustomize will replace image tags in deployments
 images:
-  - name: forohtoo
-    newName: brojonat/forohtoo
-    newTag: latest
+- name: forohtoo
+  newName: brojonat/forohtoo
+  newTag: b7b7b743f4027a087f5db0f5bd0caa3e9bec4bea
 
 secretGenerator:
-  - name: forohtoo-secret-server-envs
-    envs:
-      - ../../.env.server.prod
-  - name: forohtoo-secret-worker-envs
-    envs:
-      - ../../.env.worker.prod
+- envs:
+  - ../../.env.server.prod
+  name: forohtoo-secret-server-envs
+- envs:
+  - ../../.env.worker.prod
+  name: forohtoo-secret-worker-envs
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization

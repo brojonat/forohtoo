@@ -192,7 +192,7 @@ k8s-apply: ## Apply Kubernetes manifests (requires DOCKER_REPO and GIT_COMMIT_SH
 k8s-apply-kustomize: ## Apply Kubernetes manifests using kustomize (requires .env files)
 	@if [ ! -f .env.server.prod ]; then echo "Error: .env.server.prod not found"; exit 1; fi
 	@if [ ! -f .env.worker.prod ]; then echo "Error: .env.worker.prod not found"; exit 1; fi
-	kubectl apply -k k8s/prod
+	kustomize build k8s/prod --load-restrictor LoadRestrictionsNone | kubectl apply -f -
 
 .PHONY: k8s-delete
 k8s-delete: ## Delete Kubernetes resources
