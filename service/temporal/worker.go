@@ -16,6 +16,9 @@ type WorkerConfig struct {
 	TemporalNamespace string
 	TaskQueue         string
 
+	// Solana configuration
+	USDCMintAddress string // SPL token mint address for USDC (network-specific)
+
 	// Dependencies
 	Store        StoreInterface
 	SolanaClient SolanaClientInterface
@@ -39,6 +42,14 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 	}
 
 	logger := config.Logger.With("component", "temporal_worker")
+
+	// Set the USDC mint address for workflow use
+	USDCMintAddress = config.USDCMintAddress
+	if USDCMintAddress != "" {
+		logger.Info("USDC ATA polling enabled", "usdc_mint", USDCMintAddress)
+	} else {
+		logger.Info("USDC ATA polling disabled (no USDC_MINT_ADDRESS configured)")
+	}
 
 	logger.Info("creating temporal worker",
 		"host", config.TemporalHost,

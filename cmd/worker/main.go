@@ -102,6 +102,7 @@ func main() {
 		TemporalHost:      cfg.TemporalHost,
 		TemporalNamespace: cfg.TemporalNamespace,
 		TaskQueue:         cfg.TemporalTaskQueue,
+		USDCMintAddress:   cfg.USDCMintAddress, // Network-specific USDC mint for ATA polling
 		Store:             store,
 		SolanaClient:      solanaClient,
 		Publisher:         natsPublisher,
