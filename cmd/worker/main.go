@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
+	"github.com/brojonat/forohtoo/service/metrics"
 	natspkg "github.com/brojonat/forohtoo/service/nats"
 	"github.com/brojonat/forohtoo/service/solana"
 	"github.com/brojonat/forohtoo/service/temporal"
@@ -50,10 +52,17 @@ func main() {
 	// Initialize database store
 	store := db.NewStore(dbPool)
 
-	// Initialize Solana RPC client
+	// Initialize Prometheus metrics collector
+	metricsCollector := metrics.NewMetrics(nil) // nil uses default registry
+	logger.Info("Prometheus metrics collector initialized")
+
+	// Extract endpoint identifier from Solana RPC URL for metrics labeling
+	endpoint := extractEndpointFromURL(cfg.SolanaRPCURL)
+
+	// Initialize Solana RPC client with metrics
 	solanaRPC := solana.NewRPCClient(cfg.SolanaRPCURL)
-	solanaClient := solana.NewClient(solanaRPC, logger)
-	logger.Info("initialized solana RPC client", "url", cfg.SolanaRPCURL)
+	solanaClient := solana.NewClient(solanaRPC, endpoint, metricsCollector, logger)
+	logger.Info("initialized solana RPC client", "url", cfg.SolanaRPCURL, "endpoint", endpoint)
 
 	// Initialize NATS publisher
 	natsPublisher, err := natspkg.NewPublisher(cfg.NATSURL, logger)
@@ -72,6 +81,7 @@ func main() {
 		Store:             store,
 		SolanaClient:      solanaClient,
 		Publisher:         natsPublisher,
+		Metrics:           metricsCollector,
 		Logger:            logger,
 	}
 
@@ -137,3 +147,63 @@ func setupLogger(levelStr string) *slog.Logger {
 
 	return slog.New(slog.NewJSONHandler(os.Stderr, opts))
 }
+
+// extractEndpointFromURL extracts a short identifier from the Solana RPC URL for metrics labeling.
+// Examples:
+//   - "https://api.mainnet-beta.solana.com" -> "mainnet"
+//   - "https://api.devnet.solana.com" -> "devnet"
+//   - "https://mainnet.helius-rpc.com/?api-key=..." -> "helius"
+//   - "https://some-endpoint.quiknode.pro/..." -> "quiknode"
+func extractEndpointFromURL(rpcURL string) string {
+	parsed, err := url.Parse(rpcURL)
+	if err != nil {
+		return "unknown"
+	}
+
+	host := parsed.Hostname()
+
+	// Check for common RPC providers
+	if contains(host, "helius") {
+		return "helius"
+	}
+	if contains(host, "quiknode") || contains(host, "quicknode") {
+		return "quiknode"
+	}
+	if contains(host, "alchemy") {
+		return "alchemy"
+	}
+	if contains(host, "triton") {
+		return "triton"
+	}
+	if contains(host, "rpcpool") {
+		return "rpcpool"
+	}
+
+	// Check for official Solana endpoints
+	if contains(host, "mainnet") {
+		return "mainnet"
+	}
+	if contains(host, "devnet") {
+		return "devnet"
+	}
+	if contains(host, "testnet") {
+		return "testnet"
+	}
+
+	// Fallback to hostname
+	return host
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && findSubstring(s, substr) != -1
+}
+
+func findSubstring(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/brojonat/forohtoo/service/metrics"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 )
@@ -19,6 +20,7 @@ type WorkerConfig struct {
 	Store        StoreInterface
 	SolanaClient SolanaClientInterface
 	Publisher    PublisherInterface
+	Metrics      *metrics.Metrics // Optional: if nil, no metrics will be recorded
 	Logger       *slog.Logger
 }
 
@@ -69,6 +71,7 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 		config.Store,
 		config.SolanaClient,
 		config.Publisher,
+		config.Metrics,
 		logger,
 	)
 

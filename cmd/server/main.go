@@ -10,6 +10,7 @@ import (
 
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
+	"github.com/brojonat/forohtoo/service/metrics"
 	"github.com/brojonat/forohtoo/service/server"
 	"github.com/brojonat/forohtoo/service/temporal"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,6 +50,10 @@ func main() {
 	// Initialize database store
 	store := db.NewStore(dbPool)
 
+	// Initialize Prometheus metrics collector
+	metricsCollector := metrics.NewMetrics(nil) // nil uses default registry
+	logger.Info("Prometheus metrics collector initialized")
+
 	// Initialize Temporal client for schedule management
 	temporalClient, err := temporal.NewClient(
 		cfg.TemporalHost,
@@ -72,8 +77,8 @@ func main() {
 	defer ssePublisher.Close()
 	logger.Info("connected to NATS for SSE streaming", "url", cfg.NATSURL)
 
-	// Initialize HTTP server with scheduler and SSE publisher
-	httpServer := server.New(cfg.ServerAddr, store, temporalClient, ssePublisher, logger)
+	// Initialize HTTP server with scheduler, SSE publisher, and metrics
+	httpServer := server.New(cfg.ServerAddr, store, temporalClient, ssePublisher, metricsCollector, logger)
 
 	// Enable HTML template rendering from embedded files
 	if err := httpServer.WithTemplates(); err != nil {
