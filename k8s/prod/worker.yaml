@@ -15,19 +15,19 @@ spec:
         app: forohtoo-worker
     spec:
       containers:
-      - name: worker
-        image: {{DOCKER_REPO}}/forohtoo:{{GIT_COMMIT_SHA}}
-        imagePullPolicy: Always
-        command: ["/worker"]
-        envFrom:
-        - secretRef:
-            name: forohtoo-secret-worker-envs
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "200m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
+        - name: worker
+          image: forohtoo:latest
+          imagePullPolicy: Always
+          command: ["/worker"]
+          envFrom:
+            - secretRef:
+                name: forohtoo-secret-worker-envs
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
       imagePullSecrets:
-      - name: regcred
+        - name: regcred

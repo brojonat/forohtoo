@@ -31,40 +31,40 @@ spec:
         app: forohtoo-server
     spec:
       containers:
-      - name: server
-        image: {{DOCKER_REPO}}/forohtoo:{{GIT_COMMIT_SHA}}
-        imagePullPolicy: Always
-        command: ["/server"]
-        ports:
-        - containerPort: 8080
-          name: http
-          protocol: TCP
-        env:
-        - name: SERVER_ADDR
-          value: ":8080"
-        envFrom:
-        - secretRef:
-            name: forohtoo-secret-server-envs
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 30
-          timeoutSeconds: 5
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          timeoutSeconds: 5
+        - name: server
+          image: forohtoo:latest
+          imagePullPolicy: Always
+          command: ["/server"]
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: SERVER_ADDR
+              value: ":8080"
+          envFrom:
+            - secretRef:
+                name: forohtoo-secret-server-envs
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
       imagePullSecrets:
-      - name: regcred
+        - name: regcred
