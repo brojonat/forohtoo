@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/brojonat/forohtoo/service/db"
+	"github.com/brojonat/forohtoo/service/metrics"
 	"github.com/brojonat/forohtoo/service/temporal"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Server represents the HTTP server for the wallet service.
@@ -18,6 +20,7 @@ type Server struct {
 	scheduler    temporal.Scheduler
 	ssePublisher *SSEPublisher
 	renderer     *TemplateRenderer
+	metrics      *metrics.Metrics
 	logger       *slog.Logger
 	server       *http.Server
 }
@@ -26,12 +29,14 @@ type Server struct {
 // The scheduler is used to create/delete Temporal schedules for wallet polling.
 // The ssePublisher is optional - if nil, SSE endpoints won't be available.
 // The renderer is optional - if nil, HTML endpoints won't be available.
-func New(addr string, store *db.Store, scheduler temporal.Scheduler, ssePublisher *SSEPublisher, logger *slog.Logger) *Server {
+// The metrics is optional - if nil, metrics endpoints won't be available.
+func New(addr string, store *db.Store, scheduler temporal.Scheduler, ssePublisher *SSEPublisher, m *metrics.Metrics, logger *slog.Logger) *Server {
 	return &Server{
 		addr:         addr,
 		store:        store,
 		scheduler:    scheduler,
 		ssePublisher: ssePublisher,
+		metrics:      m,
 		logger:       logger,
 	}
 }
@@ -79,6 +84,12 @@ func (s *Server) Start() error {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
+
+	// Prometheus metrics endpoint (if metrics collector is configured)
+	if s.metrics != nil {
+		mux.Handle("GET /metrics", promhttp.Handler())
+		s.logger.Info("Prometheus metrics endpoint enabled")
+	}
 
 	// Wrap mux with CORS middleware
 	handler := corsMiddleware(mux)
