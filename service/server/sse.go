@@ -1,12 +1,14 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/brojonat/forohtoo/service/db"
 	natspkg "github.com/brojonat/forohtoo/service/nats"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -17,10 +19,11 @@ type SSEPublisher struct {
 	nc     *nats.Conn
 	js     jetstream.JetStream
 	logger *slog.Logger
+	store  *db.Store
 }
 
 // NewSSEPublisher creates a new SSE publisher that subscribes to NATS internally.
-func NewSSEPublisher(natsURL string, logger *slog.Logger) (*SSEPublisher, error) {
+func NewSSEPublisher(natsURL string, store *db.Store, logger *slog.Logger) (*SSEPublisher, error) {
 	// Connect to NATS
 	nc, err := nats.Connect(natsURL,
 		nats.Name("forohtoo-sse-publisher"),
@@ -45,6 +48,7 @@ func NewSSEPublisher(natsURL string, logger *slog.Logger) (*SSEPublisher, error)
 		nc:     nc,
 		js:     js,
 		logger: logger,
+		store:  store,
 	}, nil
 }
 
@@ -96,13 +100,67 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 			flusher.Flush()
 		}
 
-		// Create ephemeral consumer for ongoing streaming
-		// Only stream new transactions going forward (no historical data)
+		// 1) Send historical transactions in chunks from a fixed time window
+		//    For now, we choose last 24 hours. It does not seem useful to
+		//    allow arbitrary time ranges for this handler; the id here is to oversend
+		//    so the client can have everything it needs.
+		start := time.Now().Add(-24 * time.Hour)
+		end := time.Now()
+
+		// If a specific wallet is requested, we could filter by wallet here by fetching only that wallet's txns.
+		// To keep it simple and efficient, we'll fetch globally and filter in-memory when address is provided.
+		// DB path for per-wallet could be added later for optimization.
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		historical, err := publisher.store.ListTransactionsByTimeRange(ctx, start, end)
+		if err != nil {
+			logger.ErrorContext(r.Context(), "failed to load historical transactions", "error", err)
+			fmt.Fprintf(w, "event: error\ndata: {\"error\": \"failed to load history\"}\n\n")
+			return
+		}
+
+		// Filter by wallet if requested
+		if address != "" {
+			filtered := make([]*db.Transaction, 0, len(historical))
+			for _, t := range historical {
+				if t.WalletAddress == address {
+					filtered = append(filtered, t)
+				}
+			}
+			historical = filtered
+		}
+
+		// Send in chunks of 200 to avoid huge payloads
+		const chunkSize = 200
+		for i := 0; i < len(historical); i += chunkSize {
+			j := i + chunkSize
+			if j > len(historical) {
+				j = len(historical)
+			}
+			batch := historical[i:j]
+
+			// Convert to events
+			events := make([]*natspkg.TransactionEvent, 0, len(batch))
+			for _, t := range batch {
+				events = append(events, natspkg.FromDBTransaction(t))
+			}
+			payload, _ := json.Marshal(map[string]any{
+				"start":  start,
+				"end":    end,
+				"count":  len(events),
+				"events": events,
+			})
+			fmt.Fprintf(w, "event: transactions_chunk\ndata: %s\n\n", string(payload))
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+		}
+
+		// 2) Switch to live streaming via NATS
 		cons, err := publisher.js.CreateOrUpdateConsumer(r.Context(), natspkg.StreamName, jetstream.ConsumerConfig{
 			FilterSubject: subject,
 			AckPolicy:     jetstream.AckExplicitPolicy,
-			DeliverPolicy: jetstream.DeliverNewPolicy, // Only deliver new messages after consumer creation
-			// Ephemeral - will be deleted when connection closes
+			DeliverPolicy: jetstream.DeliverNewPolicy,
 		})
 		if err != nil {
 			logger.ErrorContext(r.Context(), "failed to create consumer",
@@ -113,11 +171,9 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 			return
 		}
 
-		// Create buffered channel for messages
-		msgChan := make(chan jetstream.Msg, 10)
+		msgChan := make(chan jetstream.Msg, 64)
 		doneChan := make(chan struct{})
 
-		// Start consuming messages
 		go func() {
 			defer close(doneChan)
 			cc, err := cons.Consume(func(msg jetstream.Msg) {
@@ -128,72 +184,40 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 				}
 			})
 			if err != nil {
-				logger.ErrorContext(r.Context(), "failed to start consuming messages",
-					"error", err,
-				)
+				logger.ErrorContext(r.Context(), "failed to start consuming messages", "error", err)
 				return
 			}
-			// Wait for context to be done, then stop consuming
 			<-r.Context().Done()
 			cc.Stop()
 		}()
 
-		// Create ticker for keepalive comments (every 10 seconds)
 		keepalive := time.NewTicker(10 * time.Second)
 		defer keepalive.Stop()
 
-		// Stream events to client
 		for {
 			select {
 			case <-keepalive.C:
-				// Send keepalive comment to prevent timeout
 				fmt.Fprintf(w, ": keepalive\n\n")
 				if flusher, ok := w.(http.Flusher); ok {
 					flusher.Flush()
 				}
-
 			case msg := <-msgChan:
 				var event natspkg.TransactionEvent
 				if err := json.Unmarshal(msg.Data(), &event); err != nil {
-					logger.WarnContext(r.Context(), "failed to unmarshal event",
-						"error", err,
-					)
+					logger.WarnContext(r.Context(), "failed to unmarshal event", "error", err)
 					msg.Ack()
 					continue
 				}
-
-				// Send transaction event
-				data, err := json.Marshal(event)
-				if err != nil {
-					logger.WarnContext(r.Context(), "failed to marshal event",
-						"error", err,
-					)
-					msg.Ack()
-					continue
-				}
-
+				data, _ := json.Marshal(event)
 				fmt.Fprintf(w, "event: transaction\ndata: %s\n\n", string(data))
 				if flusher, ok := w.(http.Flusher); ok {
 					flusher.Flush()
 				}
-
 				msg.Ack()
-
-				logger.DebugContext(r.Context(), "sent transaction event",
-					"wallet", address,
-					"signature", event.Signature,
-				)
-
 			case <-r.Context().Done():
-				// Client disconnected
-				logger.DebugContext(r.Context(), "SSE client disconnected",
-					"wallet", walletDesc,
-					"remote_addr", r.RemoteAddr,
-				)
+				logger.DebugContext(r.Context(), "SSE client disconnected", "wallet", walletDesc, "remote_addr", r.RemoteAddr)
 				return
-
 			case <-doneChan:
-				// Consumer closed
 				return
 			}
 		}

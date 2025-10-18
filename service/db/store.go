@@ -194,6 +194,23 @@ func (s *Store) DeleteTransactionsOlderThan(ctx context.Context, before time.Tim
 	return s.q.DeleteTransactionsOlderThan(ctx, pgtype.Timestamptz{Time: before, Valid: true})
 }
 
+// ListTransactionsByTimeRange retrieves transactions across all wallets in a time range.
+func (s *Store) ListTransactionsByTimeRange(ctx context.Context, start time.Time, end time.Time) ([]*Transaction, error) {
+	params := dbgen.ListTransactionsByTimeRangeParams{
+		StartTime: pgtype.Timestamptz{Time: start, Valid: true},
+		EndTime:   pgtype.Timestamptz{Time: end, Valid: true},
+	}
+	results, err := s.q.ListTransactionsByTimeRange(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	transactions := make([]*Transaction, len(results))
+	for i := range results {
+		transactions[i] = dbTransactionToDomain(&results[i])
+	}
+	return transactions, nil
+}
+
 // Wallet represents a registered wallet that the server monitors.
 type Wallet struct {
 	Address      string

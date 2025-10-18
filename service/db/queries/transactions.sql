@@ -57,3 +57,9 @@ WHERE block_time < $1;
 SELECT signature FROM transactions
 WHERE wallet_address = @wallet_address
 AND (@since::timestamptz IS NULL OR block_time > @since);
+
+-- name: ListTransactionsByTimeRange :many
+SELECT * FROM transactions
+WHERE block_time >= @start_time::timestamptz
+  AND block_time <= @end_time::timestamptz
+ORDER BY block_time ASC;
