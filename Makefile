@@ -240,10 +240,10 @@ deploy-all: ## Full deployment: build, push, update manifests, and deploy
 	echo "Pushing to Docker Hub..." && \
 	docker push $$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA && \
 	docker push $$DOCKER_REPO/forohtoo:latest && \
-	echo "Updating kustomization image tag..." && \
-	cd k8s/prod && kustomize edit set image forohtoo=$$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA && cd ../.. && \
 	echo "Applying Kubernetes manifests with kustomize..." && \
-	$(MAKE) k8s-apply-kustomize && \
+	kustomize build k8s/prod --load-restrictor LoadRestrictionsNone | \
+	sed "s|image: forohtoo:latest|image: $$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA|g" | \
+	kubectl apply -f - && \
 	echo "Restarting deployments..." && \
 	kubectl rollout restart deployment/forohtoo-server && \
 	kubectl rollout restart deployment/forohtoo-worker && \
