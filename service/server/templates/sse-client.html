@@ -200,14 +200,25 @@
       </div>
     </div>
 
+    <script id="template-data" type="application/json">
+      {
+        "usdcMintAddress": {{if .USDCMintAddress}}"{{.USDCMintAddress}}"{{else}}""{{end}}
+      }
+    </script>
+
     <script>
+      // Load template data
+      const templateData = JSON.parse(
+        document.getElementById("template-data").textContent
+      );
+      const USDC_MINT_ADDRESS = templateData.usdcMintAddress;
+
       let eventSource = null;
       let transactionCount = 0;
       let subscriptions = [];
       const knownSignatures = new Set();
       let timelineData = []; // Array of TransactionEvent
       const SERVER_URL = window.location.origin;
-      const USDC_MINT_ADDRESS = {{if .USDCMintAddress}}"{{.USDCMintAddress}}"{{else}}""{{end}};
 
       function updateStatus(status, message) {
         const statusEl = document.getElementById("status");
@@ -292,7 +303,9 @@
 
         // Fixed 24-hour window: now back to 24 hours ago
         const now = new Date();
-        const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const twentyFourHoursAgo = new Date(
+          now.getTime() - 24 * 60 * 60 * 1000
+        );
         const x = d3
           .scaleTime()
           .domain([twentyFourHoursAgo, now])
@@ -308,14 +321,16 @@
           .nice();
 
         // Axes with time formatting
-        const xAxis = d3.axisBottom(x)
+        const xAxis = d3
+          .axisBottom(x)
           .ticks(8)
           .tickFormat(d3.timeFormat("%b %d %H:%M"));
         gRoot.select("g.x-axis").call(xAxis);
 
-        const yAxis = d3.axisLeft(y)
+        const yAxis = d3
+          .axisLeft(y)
           .ticks(5)
-          .tickFormat(d => `$${d.toFixed(2)}`);
+          .tickFormat((d) => `$${d.toFixed(2)}`);
         gRoot.select("g.y-axis").call(yAxis);
 
         // Color by confirmation status
@@ -332,7 +347,6 @@
           .selectAll("circle")
           .data(usdcData, (d) => d.signature);
 
-
         const joined = points.join(
           (enter) => {
             const circles = enter
@@ -345,7 +359,8 @@
               .attr("stroke", "#fff")
               .attr("stroke-width", 1.5);
 
-            circles.append("title")
+            circles
+              .append("title")
               .text(
                 (d) =>
                   `${d.signature}\n${formatAmount(
@@ -362,7 +377,8 @@
               .attr("cy", (d) => y((d.amount || 0) / 1e6))
               .attr("fill", color);
 
-            update.select("title")
+            update
+              .select("title")
               .text(
                 (d) =>
                   `${d.signature}\n${formatAmount(
@@ -375,7 +391,6 @@
           },
           (exit) => exit.remove()
         );
-
       }
 
       function addTransaction(txn) {

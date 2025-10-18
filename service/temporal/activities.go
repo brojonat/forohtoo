@@ -127,7 +127,10 @@ func (a *Activities) PollSolana(ctx context.Context, input PollSolanaInput) (*Po
 	start := time.Now()
 	defer func() {
 		if a.metrics != nil {
+			a.logger.DebugContext(ctx, "recording activity duration metric", "activity", "PollSolana")
 			a.metrics.RecordActivityDuration("PollSolana", input.Address, time.Since(start).Seconds())
+		} else {
+			a.logger.WarnContext(ctx, "metrics is nil, skipping metric recording", "activity", "PollSolana")
 		}
 	}()
 
@@ -208,7 +211,10 @@ func (a *Activities) PollSolana(ctx context.Context, input PollSolanaInput) (*Po
 	if a.metrics != nil {
 		// Determine source based on address (simplified - could be enhanced)
 		source := "main_wallet"
+		a.logger.DebugContext(ctx, "recording transactions fetched metric", "count", len(transactions))
 		a.metrics.RecordTransactionsFetched(input.Address, source, len(transactions))
+	} else {
+		a.logger.WarnContext(ctx, "metrics is nil, skipping transactions fetched metric")
 	}
 
 	return result, nil

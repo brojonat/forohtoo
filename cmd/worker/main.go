@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
@@ -15,6 +17,7 @@ import (
 	"github.com/brojonat/forohtoo/service/solana"
 	"github.com/brojonat/forohtoo/service/temporal"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -55,6 +58,27 @@ func main() {
 	// Initialize Prometheus metrics collector
 	metricsCollector := metrics.NewMetrics(nil) // nil uses default registry
 	logger.Info("Prometheus metrics collector initialized")
+
+	// Start metrics HTTP server
+	metricsAddr := getEnv("METRICS_ADDR", ":9091")
+	metricsServer := &http.Server{
+		Addr:    metricsAddr,
+		Handler: promhttp.Handler(),
+	}
+
+	go func() {
+		logger.Info("starting metrics HTTP server", "addr", metricsAddr)
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("metrics server error", "error", err)
+		}
+	}()
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			logger.Error("failed to shutdown metrics server", "error", err)
+		}
+	}()
 
 	// Extract endpoint identifier from Solana RPC URL for metrics labeling
 	endpoint := extractEndpointFromURL(cfg.SolanaRPCURL)
@@ -207,3 +231,10 @@ func findSubstring(s, substr string) int {
 	return -1
 }
 
+// getEnv returns the value of an environment variable or a default if not set.
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
