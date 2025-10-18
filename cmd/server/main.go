@@ -64,7 +64,7 @@ func main() {
 	logger.Info("connected to temporal", "host", cfg.TemporalHost, "namespace", cfg.TemporalNamespace)
 
 	// Initialize SSE publisher for streaming transactions
-	ssePublisher, err := server.NewSSEPublisher(cfg.NATSURL, logger)
+	ssePublisher, err := server.NewSSEPublisher(cfg.NATSURL, store, logger)
 	if err != nil {
 		logger.Error("failed to create SSE publisher", "error", err)
 		os.Exit(1)

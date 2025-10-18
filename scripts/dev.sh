@@ -62,6 +62,9 @@ tmux send-keys -t "$SESSION_NAME:main.2" "air -c .air.cli.toml" C-m
 
 # Pane 3: Shell
 tmux send-keys -t "$SESSION_NAME:main.3" "# General shell" C-m
+tmux send-keys -t "$SESSION_NAME:main.3" "set -a" C-m
+tmux send-keys -t "$SESSION_NAME:main.3" "source .env.server.dev" C-m
+tmux send-keys -t "$SESSION_NAME:main.3" "set +a" C-m
 
 # Select the shell pane to be active
 tmux select-pane -t "$SESSION_NAME:main.3"
