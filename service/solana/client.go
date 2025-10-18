@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brojonat/forohtoo/service/metrics"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 )
@@ -29,15 +30,21 @@ type RPCClient interface {
 // Client provides methods for polling Solana transactions.
 // It wraps the RPC client with domain-specific operations.
 type Client struct {
-	rpc    RPCClient
-	logger *slog.Logger
+	rpc      RPCClient
+	logger   *slog.Logger
+	metrics  *metrics.Metrics
+	endpoint string // RPC endpoint identifier for metrics (e.g., "mainnet", "devnet", rpc host)
 }
 
 // NewClient creates a new Solana client.
-func NewClient(rpcClient RPCClient, logger *slog.Logger) *Client {
+// The endpoint parameter is used for metrics labeling (e.g., "mainnet", "devnet", or RPC hostname).
+// If metrics is nil, no metrics will be recorded.
+func NewClient(rpcClient RPCClient, endpoint string, m *metrics.Metrics, logger *slog.Logger) *Client {
 	return &Client{
-		rpc:    rpcClient,
-		logger: logger,
+		rpc:      rpcClient,
+		logger:   logger,
+		metrics:  m,
+		endpoint: endpoint,
 	}
 }
 
@@ -68,12 +75,27 @@ func (c *Client) GetTransactionsSince(
 	}
 
 	// Fetch signatures from RPC
+	start := time.Now()
 	signatures, err := c.rpc.GetSignaturesForAddress(ctx, params.Wallet, opts)
+	duration := time.Since(start).Seconds()
+
+	// Record metrics for GetSignaturesForAddress call
+	status := "success"
 	if err != nil {
+		status = "error"
 		c.logger.ErrorContext(ctx, "failed to get signatures",
 			"wallet", params.Wallet.String(),
 			"error", err,
 		)
+	}
+	if c.metrics != nil {
+		c.metrics.RecordRPCCall("GetSignaturesForAddress", status, c.endpoint, duration)
+		if err == nil {
+			c.metrics.RecordRPCSignaturesPerCall(c.endpoint, float64(len(signatures)))
+		}
+	}
+
+	if err != nil {
 		return nil, err
 	}
 
@@ -97,6 +119,10 @@ func (c *Client) GetTransactionsSince(
 			c.logger.DebugContext(ctx, "skipping already processed transaction",
 				"signature", sig.Signature.String(),
 			)
+			// Record that we skipped this transaction (deduplication working)
+			if c.metrics != nil {
+				c.metrics.RecordTransactionsSkipped(params.Wallet.String(), "already_fetched", 1)
+			}
 			continue
 		}
 
@@ -113,7 +139,19 @@ func (c *Client) GetTransactionsSince(
 				Encoding:                       solana.EncodingBase64,
 				MaxSupportedTransactionVersion: &[]uint64{0}[0],
 			}
+			txnStart := time.Now()
 			result, err = c.rpc.GetTransaction(ctx, sig.Signature, txnOpts)
+			txnDuration := time.Since(txnStart).Seconds()
+
+			// Record metrics for GetTransaction call
+			txnStatus := "success"
+			if err != nil {
+				txnStatus = "error"
+			}
+			if c.metrics != nil {
+				c.metrics.RecordRPCCall("GetTransaction", txnStatus, c.endpoint, txnDuration)
+			}
+
 			if err == nil {
 				break // Success
 			}
@@ -124,6 +162,11 @@ func (c *Client) GetTransactionsSince(
 					"signature", sig.Signature.String(),
 					"attempt", attempt+1,
 				)
+				// Record rate limit hit
+				if c.metrics != nil {
+					c.metrics.RecordRateLimitHit(c.endpoint)
+					c.metrics.RecordRPCRetry("GetTransaction", "rate_limit")
+				}
 				time.Sleep(5 * time.Second)
 				continue // Sleep and try again
 			}
@@ -134,11 +177,28 @@ func (c *Client) GetTransactionsSince(
 					"signature", sig.Signature.String(),
 				)
 
+				// Record retry for parse error
+				if c.metrics != nil {
+					c.metrics.RecordRPCRetry("GetTransaction", "parse_error")
+				}
+
 				// Retry immediately without version support
 				legacyTxnOpts := &rpc.GetTransactionOpts{
 					Encoding: solana.EncodingBase64,
 				}
+				legacyStart := time.Now()
 				result, err = c.rpc.GetTransaction(ctx, sig.Signature, legacyTxnOpts)
+				legacyDuration := time.Since(legacyStart).Seconds()
+
+				// Record metrics for legacy retry
+				legacyStatus := "success"
+				if err != nil {
+					legacyStatus = "error"
+				}
+				if c.metrics != nil {
+					c.metrics.RecordRPCCall("GetTransaction", legacyStatus, c.endpoint, legacyDuration)
+				}
+
 				if err == nil {
 					break // Success on fallback
 				}
@@ -173,9 +233,18 @@ func (c *Client) GetTransactionsSince(
 				"signature", sig.Signature.String(),
 				"error", err,
 			)
+			// Record parse failure
+			if c.metrics != nil {
+				c.metrics.RecordTransactionParsed(params.Wallet.String(), "error")
+			}
 			// Fall back to metadata-only transaction
 			transactions = append(transactions, signatureToDomain(sig))
 			continue
+		}
+
+		// Record successful parse
+		if c.metrics != nil {
+			c.metrics.RecordTransactionParsed(params.Wallet.String(), "success")
 		}
 
 		transactions = append(transactions, txn)

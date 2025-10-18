@@ -12,10 +12,19 @@ import (
 
 var a *Activities // for type-safe activity invocation
 
+// USDCMintAddress is the SPL token mint address for USDC.
+// This must be set before the worker starts, typically during initialization.
+// Set to empty string to disable USDC ATA polling.
+var USDCMintAddress string
+
 // getUSDCAssociatedTokenAccount calculates the associated token account for USDC.
-// Returns empty string if the wallet address is invalid.
+// Returns empty string if the wallet address is invalid or if USDCMintAddress is not set.
 func getUSDCAssociatedTokenAccount(walletAddress string) string {
-	const usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+	if USDCMintAddress == "" {
+		return ""
+	}
+
+	usdcMint := USDCMintAddress
 
 	wallet, err := solanago.PublicKeyFromBase58(walletAddress)
 	if err != nil {

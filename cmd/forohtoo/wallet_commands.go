@@ -292,8 +292,8 @@ func awaitCommand() *cli.Command {
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
 			&cli.StringFlag{
-				Name:    "signature",
-				Usage:   "Filter by exact transaction signature",
+				Name:  "signature",
+				Usage: "Filter by exact transaction signature",
 			},
 			&cli.Float64Flag{
 				Name:  "usdc-amount-equal",
@@ -612,7 +612,7 @@ func printTransactionDetailed(txn *client.Transaction) {
 // Returns the formatted amount string and token symbol.
 func formatAmount(amount int64, tokenType string) (string, string) {
 	// USDC mint address (6 decimals)
-	const usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+	usdcMint := os.Getenv("USDC_MINT_ADDRESS")
 
 	if tokenType == "" {
 		// Native SOL (9 decimals)

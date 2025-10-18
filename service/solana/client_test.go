@@ -48,7 +48,7 @@ func (m *mockRPCClient) GetTransaction(
 
 func newTestClient(mock *mockRPCClient) *Client {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewClient(mock, logger)
+	return NewClient(mock, "test", nil, logger) // nil metrics for tests
 }
 
 func TestGetTransactionsSince_NoLastSignature(t *testing.T) {

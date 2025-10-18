@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/brojonat/forohtoo/service/db"
+	"github.com/brojonat/forohtoo/service/metrics"
 	natspkg "github.com/brojonat/forohtoo/service/nats"
 	"github.com/brojonat/forohtoo/service/solana"
 	solanago "github.com/gagliardetto/solana-go"
@@ -95,14 +96,17 @@ type Activities struct {
 	store        StoreInterface
 	solanaClient SolanaClientInterface
 	publisher    PublisherInterface
+	metrics      *metrics.Metrics
 	logger       *slog.Logger
 }
 
 // NewActivities creates a new Activities instance with explicit dependencies.
+// If metrics is nil, no metrics will be recorded.
 func NewActivities(
 	store StoreInterface,
 	solanaClient SolanaClientInterface,
 	publisher PublisherInterface,
+	m *metrics.Metrics,
 	logger *slog.Logger,
 ) *Activities {
 	if logger == nil {
@@ -112,6 +116,7 @@ func NewActivities(
 		store:        store,
 		solanaClient: solanaClient,
 		publisher:    publisher,
+		metrics:      m,
 		logger:       logger,
 	}
 }
@@ -119,6 +124,16 @@ func NewActivities(
 // PollSolana polls the Solana network for new transactions.
 // This activity is responsible for fetching transactions from the Solana RPC.
 func (a *Activities) PollSolana(ctx context.Context, input PollSolanaInput) (*PollSolanaResult, error) {
+	start := time.Now()
+	defer func() {
+		if a.metrics != nil {
+			a.logger.DebugContext(ctx, "recording activity duration metric", "activity", "PollSolana")
+			a.metrics.RecordActivityDuration("PollSolana", input.Address, time.Since(start).Seconds())
+		} else {
+			a.logger.WarnContext(ctx, "metrics is nil, skipping metric recording", "activity", "PollSolana")
+		}
+	}()
+
 	a.logger.DebugContext(ctx, "polling solana",
 		"address", input.Address,
 		"last_signature", input.LastSignature,
@@ -192,11 +207,28 @@ func (a *Activities) PollSolana(ctx context.Context, input PollSolanaInput) (*Po
 		"newest_signature", result.NewestSignature,
 	)
 
+	// Record transactions fetched metric
+	if a.metrics != nil {
+		// Determine source based on address (simplified - could be enhanced)
+		source := "main_wallet"
+		a.logger.DebugContext(ctx, "recording transactions fetched metric", "count", len(transactions))
+		a.metrics.RecordTransactionsFetched(input.Address, source, len(transactions))
+	} else {
+		a.logger.WarnContext(ctx, "metrics is nil, skipping transactions fetched metric")
+	}
+
 	return result, nil
 }
 
 // GetExistingTransactionSignatures fetches existing transaction signatures from the database.
 func (a *Activities) GetExistingTransactionSignatures(ctx context.Context, input GetExistingTransactionSignaturesInput) (*GetExistingTransactionSignaturesResult, error) {
+	start := time.Now()
+	defer func() {
+		if a.metrics != nil {
+			a.metrics.RecordActivityDuration("GetExistingSignatures", input.WalletAddress, time.Since(start).Seconds())
+		}
+	}()
+
 	a.logger.DebugContext(ctx, "fetching existing transaction signatures",
 		"wallet_address", input.WalletAddress,
 		"since", input.Since,
@@ -228,6 +260,13 @@ func (a *Activities) GetExistingTransactionSignatures(ctx context.Context, input
 // It handles duplicate transactions gracefully by skipping them.
 // After writing, it publishes transaction events to NATS for real-time subscribers.
 func (a *Activities) WriteTransactions(ctx context.Context, input WriteTransactionsInput) (*WriteTransactionsResult, error) {
+	start := time.Now()
+	defer func() {
+		if a.metrics != nil {
+			a.metrics.RecordActivityDuration("WriteTransactions", input.WalletAddress, time.Since(start).Seconds())
+		}
+	}()
+
 	a.logger.DebugContext(ctx, "writing transactions",
 		"wallet", input.WalletAddress,
 		"count", len(input.Transactions),
@@ -310,6 +349,19 @@ func (a *Activities) WriteTransactions(ctx context.Context, input WriteTransacti
 		"skipped", skipped,
 		"total", len(input.Transactions),
 	)
+
+	// Record transaction write metrics
+	if a.metrics != nil {
+		a.metrics.RecordTransactionsWritten(input.WalletAddress, written)
+		a.metrics.RecordTransactionsSkipped(input.WalletAddress, "already_exists", skipped)
+
+		// Calculate and record deduplication ratio
+		total := float64(len(input.Transactions))
+		if total > 0 {
+			ratio := float64(skipped) / total
+			a.metrics.RecordDeduplicationRatio(input.WalletAddress, ratio)
+		}
+	}
 
 	// Publish newly written transactions to NATS
 	if len(writtenTransactions) > 0 && a.publisher != nil {

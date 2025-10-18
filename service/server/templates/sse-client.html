@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Forohtoo Transaction Stream</title>
+    <script src="https://unpkg.com/rxjs@7/dist/bundles/rxjs.umd.min.js"></script>
+    <script src="https://unpkg.com/d3@7/dist/d3.min.js"></script>
     <style>
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
@@ -75,6 +77,17 @@
         border-radius: 8px;
         padding: 20px;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .chart {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        margin-top: 20px;
+      }
+      svg.timeline {
+        width: 100%;
+        height: 280px;
       }
       .transaction {
         border-bottom: 1px solid #eee;
@@ -162,6 +175,11 @@
 
     <div class="status disconnected" id="status">Disconnected</div>
 
+    <div class="chart">
+      <h2 style="margin: 0 0 12px 0">USDC Timeline (24 Hours)</h2>
+      <svg id="timeline" class="timeline"></svg>
+    </div>
+
     <div class="transactions">
       <div
         style="
@@ -182,9 +200,24 @@
       </div>
     </div>
 
+    <script id="template-data" type="application/json">
+      {
+        "usdcMintAddress": {{if .USDCMintAddress}}"{{.USDCMintAddress}}"{{else}}""{{end}}
+      }
+    </script>
+
     <script>
+      // Load template data
+      const templateData = JSON.parse(
+        document.getElementById("template-data").textContent
+      );
+      const USDC_MINT_ADDRESS = templateData.usdcMintAddress;
+
       let eventSource = null;
       let transactionCount = 0;
+      let subscriptions = [];
+      const knownSignatures = new Set();
+      let timelineData = []; // Array of TransactionEvent
       const SERVER_URL = window.location.origin;
 
       function updateStatus(status, message) {
@@ -201,12 +234,163 @@
         }`;
       }
 
-      function formatLamports(lamports) {
-        return `${(lamports / 1e9).toFixed(4)} SOL`;
+      function formatAmount(amount, tokenType) {
+        if (!tokenType || tokenType === "") {
+          // Native SOL (9 decimals)
+          return `${(amount / 1e9).toFixed(4)} SOL`;
+        }
+
+        if (USDC_MINT_ADDRESS && tokenType === USDC_MINT_ADDRESS) {
+          // USDC (6 decimals)
+          return `${(amount / 1e6).toFixed(2)} USDC`;
+        }
+
+        // Unknown SPL token - use 6 decimals as default for most SPL tokens
+        return `${(amount / 1e6).toFixed(6)} SPL`;
       }
 
       function formatDate(dateString) {
         return new Date(dateString).toLocaleString();
+      }
+
+      // D3 timeline rendering
+      const margin = { top: 10, right: 16, bottom: 28, left: 48 };
+      function renderTimeline(data) {
+        const svg = d3.select("#timeline");
+        const width = svg.node().clientWidth;
+        const height = svg.node().clientHeight;
+        const innerWidth = Math.max(0, width - margin.left - margin.right);
+        const innerHeight = Math.max(0, height - margin.top - margin.bottom);
+
+        // Ensure a single root g
+        let gRoot = svg.select("g.root");
+        if (gRoot.empty()) {
+          svg.selectAll("*").remove();
+          gRoot = svg
+            .append("g")
+            .attr("class", "root")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+          gRoot
+            .append("g")
+            .attr("class", "x-axis")
+            .attr("transform", `translate(0,${innerHeight})`);
+          gRoot.append("g").attr("class", "y-axis");
+          gRoot.append("g").attr("class", "points");
+        }
+
+        if (!data || data.length === 0) {
+          // Clear points but keep axes
+          gRoot.select("g.points").selectAll("circle").data([]).join("circle");
+          gRoot
+            .select("g.x-axis")
+            .call(d3.axisBottom(d3.scaleTime().range([0, innerWidth])));
+          gRoot
+            .select("g.y-axis")
+            .call(
+              d3
+                .axisLeft(
+                  d3.scaleLinear().domain([0, 1]).range([innerHeight, 0])
+                )
+                .ticks(0)
+            );
+          return;
+        }
+
+        // Filter to only USDC transactions
+        const usdcData = USDC_MINT_ADDRESS
+          ? data.filter((d) => d.token_type === USDC_MINT_ADDRESS)
+          : [];
+
+        // Fixed 24-hour window: now back to 24 hours ago
+        const now = new Date();
+        const twentyFourHoursAgo = new Date(
+          now.getTime() - 24 * 60 * 60 * 1000
+        );
+        const x = d3
+          .scaleTime()
+          .domain([twentyFourHoursAgo, now])
+          .range([0, innerWidth]);
+
+        // Y encodes USDC amount (convert from micro-USDC to USDC)
+        const usdcAmounts = usdcData.map((d) => (d.amount || 0) / 1e6);
+        const yMax = Math.max(1, d3.max(usdcAmounts) || 1);
+        const y = d3
+          .scaleLinear()
+          .domain([0, yMax])
+          .range([innerHeight - 4, 12])
+          .nice();
+
+        // Axes with time formatting
+        const xAxis = d3
+          .axisBottom(x)
+          .ticks(8)
+          .tickFormat(d3.timeFormat("%b %d %H:%M"));
+        gRoot.select("g.x-axis").call(xAxis);
+
+        const yAxis = d3
+          .axisLeft(y)
+          .ticks(5)
+          .tickFormat((d) => `$${d.toFixed(2)}`);
+        gRoot.select("g.y-axis").call(yAxis);
+
+        // Color by confirmation status
+        function color(d) {
+          const s = (d.confirmation_status || "").toLowerCase();
+          if (s === "failed") return "#f44336";
+          if (s === "confirmed") return "#4caf50";
+          return "#9e9e9e";
+        }
+
+        // Data join (only USDC transactions)
+        const points = gRoot
+          .select("g.points")
+          .selectAll("circle")
+          .data(usdcData, (d) => d.signature);
+
+        const joined = points.join(
+          (enter) => {
+            const circles = enter
+              .append("circle")
+              .attr("r", 6)
+              .attr("cx", (d) => x(new Date(d.block_time || d.published_at)))
+              .attr("cy", (d) => y((d.amount || 0) / 1e6))
+              .attr("fill", color)
+              .attr("opacity", 0.8)
+              .attr("stroke", "#fff")
+              .attr("stroke-width", 1.5);
+
+            circles
+              .append("title")
+              .text(
+                (d) =>
+                  `${d.signature}\n${formatAmount(
+                    d.amount || 0,
+                    d.token_type
+                  )}\n${formatDate(d.block_time || d.published_at)}`
+              );
+
+            return circles;
+          },
+          (update) => {
+            update
+              .attr("cx", (d) => x(new Date(d.block_time || d.published_at)))
+              .attr("cy", (d) => y((d.amount || 0) / 1e6))
+              .attr("fill", color);
+
+            update
+              .select("title")
+              .text(
+                (d) =>
+                  `${d.signature}\n${formatAmount(
+                    d.amount || 0,
+                    d.token_type
+                  )}\n${formatDate(d.block_time || d.published_at)}`
+              );
+
+            return update;
+          },
+          (exit) => exit.remove()
+        );
       }
 
       function addTransaction(txn) {
@@ -266,7 +450,10 @@
 
         txnEl.innerHTML = `
                 <div class="transaction-header">
-                    <div class="amount">${formatLamports(txn.amount)}</div>
+                    <div class="amount">${formatAmount(
+                      txn.amount,
+                      txn.token_type
+                    )}</div>
                     <div style="font-size: 12px; color: #999;">${formatDate(
                       txn.published_at
                     )}</div>
@@ -281,6 +468,131 @@
         listEl.insertBefore(txnEl, listEl.firstChild);
         transactionCount++;
         updateCount();
+      }
+
+      // RxJS helpers
+      const { Observable, merge, fromEventPattern } = rxjs;
+      const { map, filter, tap, mergeMap, bufferTime } = rxjs.operators;
+
+      function fromSSE(es, eventName) {
+        return new Observable((subscriber) => {
+          const handler = (e) => {
+            try {
+              subscriber.next(JSON.parse(e.data));
+            } catch (err) {
+              console.error("Failed to parse SSE data", err);
+            }
+          };
+          es.addEventListener(eventName, handler);
+          return () => es.removeEventListener(eventName, handler);
+        });
+      }
+
+      function setupStreams(url) {
+        const es = new EventSource(url);
+        eventSource = es;
+
+        es.onopen = (e) => {
+          console.log("EventSource connection opened:", {
+            readyState: es.readyState,
+            url: es.url,
+          });
+        };
+
+        const connected$ = fromSSE(es, "connected");
+        const chunks$ = fromSSE(es, "transactions_chunk");
+        const live$ = fromSSE(es, "transaction");
+
+        // Handle connected event (UI only)
+        subscriptions.push(
+          connected$.subscribe((data) => {
+            updateStatus("connected", `Connected to ${data.wallet}`);
+          })
+        );
+
+        // Historical chunks: apply in batches, single render per chunk
+        subscriptions.push(
+          chunks$.subscribe((payload) => {
+            const events = Array.isArray(payload.events) ? payload.events : [];
+            let added = 0;
+            for (const ev of events) {
+              if (knownSignatures.has(ev.signature)) continue;
+              knownSignatures.add(ev.signature);
+              timelineData.push(ev);
+              addTransaction(ev);
+              added++;
+            }
+            if (added > 0) {
+              // Sort by time once per chunk
+              timelineData.sort(
+                (a, b) =>
+                  new Date(a.block_time || a.published_at) -
+                  new Date(b.block_time || b.published_at)
+              );
+              renderTimeline(timelineData);
+            }
+          })
+        );
+
+        // Live events: incremental updates
+        subscriptions.push(
+          live$.subscribe((ev) => {
+            if (knownSignatures.has(ev.signature)) return;
+            knownSignatures.add(ev.signature);
+            timelineData.push(ev);
+            addTransaction(ev);
+            // Keep sorted; since live usually appends newer, do a cheap check
+            const n = timelineData.length;
+            if (n >= 2) {
+              const prev = timelineData[n - 2];
+              const tPrev = new Date(
+                prev.block_time || prev.published_at
+              ).getTime();
+              const tCur = new Date(ev.block_time || ev.published_at).getTime();
+              if (tCur < tPrev) {
+                timelineData.sort(
+                  (a, b) =>
+                    new Date(a.block_time || a.published_at) -
+                    new Date(b.block_time || b.published_at)
+                );
+              }
+            }
+            renderTimeline(timelineData);
+          })
+        );
+
+        // Error handling
+        es.onerror = (e) => {
+          console.error("SSE connection error:", {
+            event: e,
+            eventType: e.type,
+            readyState: es ? es.readyState : "null",
+            readyStateText: es
+              ? es.readyState === 0
+                ? "CONNECTING"
+                : es.readyState === 1
+                ? "OPEN"
+                : es.readyState === 2
+                ? "CLOSED"
+                : "UNKNOWN"
+              : "null",
+            url: es ? es.url : "null",
+            timestamp: new Date().toISOString(),
+          });
+
+          if (es && es.readyState === EventSource.CLOSED) {
+            console.warn("EventSource closed permanently");
+            updateStatus("disconnected", "Connection closed by server");
+            disconnect();
+          } else if (es && es.readyState === EventSource.CONNECTING) {
+            console.warn("EventSource reconnecting...");
+            updateStatus("connecting", "Reconnecting...");
+          } else {
+            console.error("EventSource error in unknown state");
+            updateStatus("disconnected", "Connection error (see console)");
+            disconnect();
+          }
+        };
       }
 
       function connect() {
@@ -301,59 +613,16 @@
           updateStatus("connecting", "Connecting to all wallets...");
         }
 
-        console.log("Creating EventSource connection:", url);
-        eventSource = new EventSource(url);
+        // Reset state for a fresh view
+        knownSignatures.clear();
+        timelineData = [];
+        document.getElementById("transactionList").innerHTML =
+          '<div class="empty">Loading historical transactions…</div>';
+        transactionCount = 0;
+        updateCount();
+        renderTimeline(timelineData);
 
-        eventSource.onopen = (e) => {
-          console.log("EventSource connection opened:", {
-            readyState: eventSource.readyState,
-            url: eventSource.url
-          });
-        };
-
-        eventSource.addEventListener("connected", (e) => {
-          console.log("Received 'connected' event:", e.data);
-          const data = JSON.parse(e.data);
-          if (walletAddress) {
-            updateStatus("connected", `Connected to ${walletAddress}`);
-          } else {
-            updateStatus("connected", "Connected to all wallets");
-          }
-        });
-
-        eventSource.addEventListener("transaction", (e) => {
-          const txn = JSON.parse(e.data);
-          addTransaction(txn);
-        });
-
-        eventSource.onerror = (e) => {
-          console.error("SSE connection error:", {
-            event: e,
-            eventType: e.type,
-            readyState: eventSource ? eventSource.readyState : 'null',
-            readyStateText: eventSource ?
-              (eventSource.readyState === 0 ? 'CONNECTING' :
-               eventSource.readyState === 1 ? 'OPEN' :
-               eventSource.readyState === 2 ? 'CLOSED' : 'UNKNOWN') : 'null',
-            url: eventSource ? eventSource.url : 'null',
-            timestamp: new Date().toISOString()
-          });
-
-          // Check if it's just a connection close vs actual error
-          if (eventSource && eventSource.readyState === EventSource.CLOSED) {
-            console.warn("EventSource closed permanently");
-            updateStatus("disconnected", "Connection closed by server");
-            disconnect();
-          } else if (eventSource && eventSource.readyState === EventSource.CONNECTING) {
-            console.warn("EventSource reconnecting...");
-            updateStatus("connecting", "Reconnecting...");
-            // Don't disconnect, let it try to reconnect
-          } else {
-            console.error("EventSource error in unknown state");
-            updateStatus("disconnected", "Connection error (see console)");
-            disconnect();
-          }
-        };
+        setupStreams(url);
       }
 
       function disconnect() {
@@ -362,6 +631,13 @@
           eventSource = null;
           updateStatus("disconnected", "Disconnected");
         }
+        // Unsubscribe all
+        for (const sub of subscriptions) {
+          try {
+            sub.unsubscribe && sub.unsubscribe();
+          } catch (_) {}
+        }
+        subscriptions = [];
       }
 
       function clearTransactions() {
@@ -369,6 +645,9 @@
           '<div class="empty">No transactions yet</div>';
         transactionCount = 0;
         updateCount();
+        knownSignatures.clear();
+        timelineData = [];
+        renderTimeline(timelineData);
       }
 
       // Connect on Enter key

@@ -240,11 +240,8 @@ deploy-all: ## Full deployment: build, push, update manifests, and deploy
 	echo "Pushing to Docker Hub..." && \
 	docker push $$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA && \
 	docker push $$DOCKER_REPO/forohtoo:latest && \
-	echo "Updating Kubernetes manifests..." && \
-	sed -i "s|image: $$DOCKER_REPO/forohtoo:.*|image: $$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA|g" k8s/prod/server.yaml && \
-	sed -i "s|image: $$DOCKER_REPO/forohtoo:.*|image: $$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA|g" k8s/prod/worker.yaml && \
 	echo "Applying Kubernetes manifests..." && \
-	kubectl apply -k k8s/prod && \
+	DOCKER_REPO=$$DOCKER_REPO GIT_COMMIT_SHA=$$GIT_COMMIT_SHA $(MAKE) k8s-apply && \
 	echo "Restarting deployments..." && \
 	kubectl rollout restart deployment/forohtoo-server && \
 	kubectl rollout restart deployment/forohtoo-worker && \
