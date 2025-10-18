@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
 )
 
 //go:embed templates/*.html
@@ -39,7 +40,10 @@ func (tr *TemplateRenderer) Render(w http.ResponseWriter, name string, data inte
 // handleSSEClientPage serves the SSE client demo page
 func handleSSEClientPage(renderer *TemplateRenderer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := renderer.Render(w, "sse-client.html", nil); err != nil {
+		data := map[string]interface{}{
+			"USDCMintAddress": os.Getenv("USDC_MINT_ADDRESS"),
+		}
+		if err := renderer.Render(w, "sse-client.html", data); err != nil {
 			renderer.logger.Error("failed to render template", "error", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return

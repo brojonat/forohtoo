@@ -175,6 +175,11 @@
 
     <div class="status disconnected" id="status">Disconnected</div>
 
+    <div class="chart">
+      <h2 style="margin: 0 0 12px 0">USDC Timeline (24 Hours)</h2>
+      <svg id="timeline" class="timeline"></svg>
+    </div>
+
     <div class="transactions">
       <div
         style="
@@ -195,11 +200,6 @@
       </div>
     </div>
 
-    <div class="chart">
-      <h2 style="margin: 0 0 12px 0">Timeline</h2>
-      <svg id="timeline" class="timeline"></svg>
-    </div>
-
     <script>
       let eventSource = null;
       let transactionCount = 0;
@@ -207,6 +207,7 @@
       const knownSignatures = new Set();
       let timelineData = []; // Array of TransactionEvent
       const SERVER_URL = window.location.origin;
+      const USDC_MINT_ADDRESS = {{if .USDCMintAddress}}"{{.USDCMintAddress}}"{{else}}""{{end}};
 
       function updateStatus(status, message) {
         const statusEl = document.getElementById("status");
@@ -222,8 +223,19 @@
         }`;
       }
 
-      function formatLamports(lamports) {
-        return `${(lamports / 1e9).toFixed(4)} SOL`;
+      function formatAmount(amount, tokenType) {
+        if (!tokenType || tokenType === "") {
+          // Native SOL (9 decimals)
+          return `${(amount / 1e9).toFixed(4)} SOL`;
+        }
+
+        if (USDC_MINT_ADDRESS && tokenType === USDC_MINT_ADDRESS) {
+          // USDC (6 decimals)
+          return `${(amount / 1e6).toFixed(2)} USDC`;
+        }
+
+        // Unknown SPL token - use 6 decimals as default for most SPL tokens
+        return `${(amount / 1e6).toFixed(6)} SPL`;
       }
 
       function formatDate(dateString) {
@@ -273,24 +285,38 @@
           return;
         }
 
-        // Parse times and compute domains
-        const times = data.map((d) => new Date(d.block_time || d.published_at));
+        // Filter to only USDC transactions
+        const usdcData = USDC_MINT_ADDRESS
+          ? data.filter((d) => d.token_type === USDC_MINT_ADDRESS)
+          : [];
+
+        // Fixed 24-hour window: now back to 24 hours ago
+        const now = new Date();
+        const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const x = d3
           .scaleTime()
-          .domain(d3.extent(times))
-          .range([0, innerWidth])
-          .nice();
-        // Y encodes amount magnitude (sqrt scale), fall back to 0..1 if missing
-        const amounts = data.map((d) => Math.max(0, d.amount || 0));
-        const yMax = Math.max(1, d3.max(amounts) || 1);
-        const y = d3
-          .scaleSqrt()
-          .domain([0, yMax])
-          .range([innerHeight - 4, 12]);
+          .domain([twentyFourHoursAgo, now])
+          .range([0, innerWidth]);
 
-        // Axes
-        gRoot.select("g.x-axis").call(d3.axisBottom(x).ticks(5));
-        gRoot.select("g.y-axis").call(d3.axisLeft(y).ticks(3));
+        // Y encodes USDC amount (convert from micro-USDC to USDC)
+        const usdcAmounts = usdcData.map((d) => (d.amount || 0) / 1e6);
+        const yMax = Math.max(1, d3.max(usdcAmounts) || 1);
+        const y = d3
+          .scaleLinear()
+          .domain([0, yMax])
+          .range([innerHeight - 4, 12])
+          .nice();
+
+        // Axes with time formatting
+        const xAxis = d3.axisBottom(x)
+          .ticks(8)
+          .tickFormat(d3.timeFormat("%b %d %H:%M"));
+        gRoot.select("g.x-axis").call(xAxis);
+
+        const yAxis = d3.axisLeft(y)
+          .ticks(5)
+          .tickFormat(d => `$${d.toFixed(2)}`);
+        gRoot.select("g.y-axis").call(yAxis);
 
         // Color by confirmation status
         function color(d) {
@@ -300,46 +326,56 @@
           return "#9e9e9e";
         }
 
-        // Data join
+        // Data join (only USDC transactions)
         const points = gRoot
           .select("g.points")
           .selectAll("circle")
-          .data(data, (d) => d.signature);
+          .data(usdcData, (d) => d.signature);
 
-        points
-          .join(
-            (enter) =>
-              enter
-                .append("circle")
-                .attr("r", 0)
-                .attr("cx", (d) => x(new Date(d.block_time || d.published_at)))
-                .attr("cy", (d) => y(Math.max(0, d.amount || 0)))
-                .attr("fill", color)
-                .attr("opacity", 0.8)
-                .append("title")
-                .text(
-                  (d) =>
-                    `${d.signature}\n${formatLamports(
-                      d.amount || 0
-                    )}\n${formatDate(d.block_time || d.published_at)}`
-                ),
-            (update) =>
-              update
-                .attr("cx", (d) => x(new Date(d.block_time || d.published_at)))
-                .attr("cy", (d) => y(Math.max(0, d.amount || 0)))
-                .attr("fill", color)
-                .select("title")
-                .text(
-                  (d) =>
-                    `${d.signature}\n${formatLamports(
-                      d.amount || 0
-                    )}\n${formatDate(d.block_time || d.published_at)}`
-                ),
-            (exit) => exit.remove()
-          )
-          .transition()
-          .duration(200)
-          .attr("r", 4);
+
+        const joined = points.join(
+          (enter) => {
+            const circles = enter
+              .append("circle")
+              .attr("r", 6)
+              .attr("cx", (d) => x(new Date(d.block_time || d.published_at)))
+              .attr("cy", (d) => y((d.amount || 0) / 1e6))
+              .attr("fill", color)
+              .attr("opacity", 0.8)
+              .attr("stroke", "#fff")
+              .attr("stroke-width", 1.5);
+
+            circles.append("title")
+              .text(
+                (d) =>
+                  `${d.signature}\n${formatAmount(
+                    d.amount || 0,
+                    d.token_type
+                  )}\n${formatDate(d.block_time || d.published_at)}`
+              );
+
+            return circles;
+          },
+          (update) => {
+            update
+              .attr("cx", (d) => x(new Date(d.block_time || d.published_at)))
+              .attr("cy", (d) => y((d.amount || 0) / 1e6))
+              .attr("fill", color);
+
+            update.select("title")
+              .text(
+                (d) =>
+                  `${d.signature}\n${formatAmount(
+                    d.amount || 0,
+                    d.token_type
+                  )}\n${formatDate(d.block_time || d.published_at)}`
+              );
+
+            return update;
+          },
+          (exit) => exit.remove()
+        );
+
       }
 
       function addTransaction(txn) {
@@ -399,7 +435,10 @@
 
         txnEl.innerHTML = `
                 <div class="transaction-header">
-                    <div class="amount">${formatLamports(txn.amount)}</div>
+                    <div class="amount">${formatAmount(
+                      txn.amount,
+                      txn.token_type
+                    )}</div>
                     <div style="font-size: 12px; color: #999;">${formatDate(
                       txn.published_at
                     )}</div>
@@ -559,7 +598,6 @@
           updateStatus("connecting", "Connecting to all wallets...");
         }
 
-        console.log("Creating EventSource connection:", url);
         // Reset state for a fresh view
         knownSignatures.clear();
         timelineData = [];
