@@ -99,8 +99,9 @@ func (s *Store) GetTransaction(ctx context.Context, signature string) (*Transact
 	return dbTransactionToDomain(&result), nil
 }
 
-// GetTransactionSignaturesByWallet retrieves all transaction signatures for a wallet.
-func (s *Store) GetTransactionSignaturesByWallet(ctx context.Context, walletAddress string, since *time.Time) ([]string, error) {
+// GetTransactionSignaturesByWallet retrieves transaction signatures for a wallet.
+// Limit controls the maximum number of signatures returned (ordered by most recent first).
+func (s *Store) GetTransactionSignaturesByWallet(ctx context.Context, walletAddress string, since *time.Time, limit int32) ([]string, error) {
 	var sinceVal pgtype.Timestamptz
 	if since != nil {
 		sinceVal = pgtype.Timestamptz{Time: *since, Valid: true}
@@ -108,6 +109,7 @@ func (s *Store) GetTransactionSignaturesByWallet(ctx context.Context, walletAddr
 	arg := dbgen.GetTransactionSignaturesByWalletParams{
 		WalletAddress: walletAddress,
 		Since:         sinceVal,
+		LimitCount:    limit,
 	}
 	return s.q.GetTransactionSignaturesByWallet(ctx, arg)
 }

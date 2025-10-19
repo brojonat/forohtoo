@@ -64,8 +64,8 @@ func (m *MockStore) GetWallet(ctx context.Context, address string) (*db.Wallet, 
 	return args.Get(0).(*db.Wallet), args.Error(1)
 }
 
-func (m *MockStore) GetTransactionSignaturesByWallet(ctx context.Context, walletAddress string, since *time.Time) ([]string, error) {
-	args := m.Called(ctx, walletAddress, since)
+func (m *MockStore) GetTransactionSignaturesByWallet(ctx context.Context, walletAddress string, since *time.Time, limit int32) ([]string, error) {
+	args := m.Called(ctx, walletAddress, since, limit)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -198,7 +198,7 @@ func TestActivities_GetExistingTransactionSignatures(t *testing.T) {
 			},
 			setupMock: func(m *MockStore) {
 				sigs := []string{"sig1", "sig2"}
-				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, mock.Anything).
+				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, mock.Anything, mock.Anything).
 					Return(sigs, nil)
 			},
 			expectedResult: &GetExistingTransactionSignaturesResult{
@@ -212,7 +212,7 @@ func TestActivities_GetExistingTransactionSignatures(t *testing.T) {
 				WalletAddress: testWallet,
 			},
 			setupMock: func(m *MockStore) {
-				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, mock.Anything).
+				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, mock.Anything, mock.Anything).
 					Return([]string{}, nil)
 			},
 			expectedResult: &GetExistingTransactionSignaturesResult{
@@ -226,7 +226,7 @@ func TestActivities_GetExistingTransactionSignatures(t *testing.T) {
 				WalletAddress: testWallet,
 			},
 			setupMock: func(m *MockStore) {
-				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, mock.Anything).
+				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, mock.Anything, mock.Anything).
 					Return(nil, errors.New("db error"))
 			},
 			expectedResult: nil,

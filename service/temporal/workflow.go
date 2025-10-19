@@ -80,8 +80,9 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 
 	// Step 1: Get existing transaction signatures from the database
 	var existingSigsResult *GetExistingTransactionSignaturesResult
-	since := workflow.Now(ctx).Add(-24 * time.Hour)
-	err := workflow.ExecuteActivity(ctx, a.GetExistingTransactionSignatures, GetExistingTransactionSignaturesInput{WalletAddress: input.Address, Since: &since}).Get(ctx, &existingSigsResult)
+	// Get ALL existing signatures (no time filter) to ensure proper deduplication
+	// This is safe because we're only fetching signatures, not full transaction data
+	err := workflow.ExecuteActivity(ctx, a.GetExistingTransactionSignatures, GetExistingTransactionSignaturesInput{WalletAddress: input.Address, Since: nil}).Get(ctx, &existingSigsResult)
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to get existing transaction signatures: %v", err)
 		result.Error = &errMsg

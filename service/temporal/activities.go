@@ -74,7 +74,7 @@ type StoreInterface interface {
 	UpdateWalletPollTime(context.Context, string, time.Time) (*db.Wallet, error)
 	GetTransaction(context.Context, string) (*db.Transaction, error)
 	GetWallet(context.Context, string) (*db.Wallet, error)
-	GetTransactionSignaturesByWallet(context.Context, string, *time.Time) ([]string, error)
+	GetTransactionSignaturesByWallet(context.Context, string, *time.Time, int32) ([]string, error)
 }
 
 // SolanaClientInterface defines the Solana operations needed by activities.
@@ -234,7 +234,9 @@ func (a *Activities) GetExistingTransactionSignatures(ctx context.Context, input
 		"since", input.Since,
 	)
 
-	signatures, err := a.store.GetTransactionSignaturesByWallet(ctx, input.WalletAddress, input.Since)
+	// Limit to 1000 most recent signatures to prevent unbounded growth
+	const maxSignatures = 1000
+	signatures, err := a.store.GetTransactionSignaturesByWallet(ctx, input.WalletAddress, input.Since, maxSignatures)
 	if err != nil {
 		a.logger.ErrorContext(ctx, "failed to get existing transaction signatures",
 			"wallet_address", input.WalletAddress,
