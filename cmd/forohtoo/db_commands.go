@@ -83,19 +83,33 @@ func getWalletCommand() *cli.Command {
 		Usage:     "Get wallet details",
 		Aliases:   []string{"get"},
 		ArgsUsage: "<address>",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "network",
+				Aliases: []string{"n"},
+				Value:   "mainnet",
+				Usage:   "Network (mainnet or devnet)",
+			},
+		},
 		Action: func(c *cli.Context) error {
 			if c.NArg() != 1 {
 				return fmt.Errorf("requires exactly one argument: wallet address")
 			}
 
 			address := c.Args().First()
+			network := c.String("network")
+
+			if network != "mainnet" && network != "devnet" {
+				return fmt.Errorf("invalid network: must be 'mainnet' or 'devnet'")
+			}
+
 			store, closer, err := getStore(c)
 			if err != nil {
 				return err
 			}
 			defer closer()
 
-			wallet, err := store.GetWallet(context.Background(), address)
+			wallet, err := store.GetWallet(context.Background(), address, network)
 			if err != nil {
 				return fmt.Errorf("failed to get wallet: %w", err)
 			}
@@ -106,6 +120,7 @@ func getWalletCommand() *cli.Command {
 
 			// Pretty output
 			fmt.Printf("Address:       %s\n", wallet.Address)
+			fmt.Printf("Network:       %s\n", wallet.Network)
 			fmt.Printf("Status:        %s\n", wallet.Status)
 			fmt.Printf("Poll Interval: %v\n", wallet.PollInterval)
 			if wallet.LastPollTime != nil {
@@ -133,6 +148,12 @@ func listTransactionsCommand() *cli.Command {
 				Usage:   "Filter by wallet address",
 			},
 			&cli.StringFlag{
+				Name:    "network",
+				Aliases: []string{"net"},
+				Value:   "mainnet",
+				Usage:   "Network (mainnet or devnet)",
+			},
+			&cli.StringFlag{
 				Name:  "since",
 				Usage: "Show transactions since this time (RFC3339 format)",
 			},
@@ -149,6 +170,11 @@ func listTransactionsCommand() *cli.Command {
 			},
 		},
 		Action: func(c *cli.Context) error {
+			network := c.String("network")
+			if network != "mainnet" && network != "devnet" {
+				return fmt.Errorf("invalid network: must be 'mainnet' or 'devnet'")
+			}
+
 			store, closer, err := getStore(c)
 			if err != nil {
 				return err
@@ -166,7 +192,7 @@ func listTransactionsCommand() *cli.Command {
 				if err != nil {
 					return fmt.Errorf("invalid time format (use RFC3339): %w", err)
 				}
-				transactions, err = store.GetTransactionsSince(context.Background(), walletAddr, since)
+				transactions, err = store.GetTransactionsSince(context.Background(), walletAddr, network, since)
 				if err != nil {
 					return fmt.Errorf("failed to get transactions: %w", err)
 				}

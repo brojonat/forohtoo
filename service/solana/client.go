@@ -51,6 +51,7 @@ func NewClient(rpcClient RPCClient, endpoint string, m *metrics.Metrics, logger 
 // GetTransactionsSinceParams contains parameters for fetching transactions.
 type GetTransactionsSinceParams struct {
 	Wallet             solana.PublicKey
+	Network            string // "mainnet" or "devnet"
 	LastSignature      *solana.Signature
 	Limit              int
 	ExistingSignatures []string
@@ -234,7 +235,9 @@ func (c *Client) GetTransactionsSince(
 				"error", err,
 			)
 			// Fall back to metadata-only transaction
-			transactions = append(transactions, signatureToDomain(sig))
+			txn := signatureToDomain(sig)
+			txn.Network = params.Network
+			transactions = append(transactions, txn)
 			continue
 		}
 
@@ -251,9 +254,14 @@ func (c *Client) GetTransactionsSince(
 				c.metrics.RecordTransactionParsed(params.Wallet.String(), "error")
 			}
 			// Fall back to metadata-only transaction
-			transactions = append(transactions, signatureToDomain(sig))
+			fallbackTxn := signatureToDomain(sig)
+			fallbackTxn.Network = params.Network
+			transactions = append(transactions, fallbackTxn)
 			continue
 		}
+
+		// Set network on the parsed transaction
+		txn.Network = params.Network
 
 		// Record successful parse
 		if c.metrics != nil {

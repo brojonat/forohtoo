@@ -86,15 +86,16 @@ func TestServerIntegration(t *testing.T) {
 
 	// Test 1: Register a wallet
 	t.Run("register wallet", func(t *testing.T) {
-		err := c.Register(ctx, "TestWa11et11111111111111111111111111", 30*time.Second)
+		err := c.Register(ctx, "TestWa11et11111111111111111111111111", "mainnet", 30*time.Second)
 		require.NoError(t, err)
 	})
 
 	// Test 2: Get wallet
 	t.Run("get wallet", func(t *testing.T) {
-		wallet, err := c.Get(ctx, "TestWa11et11111111111111111111111111")
+		wallet, err := c.Get(ctx, "TestWa11et11111111111111111111111111", "mainnet")
 		require.NoError(t, err)
 		assert.Equal(t, "TestWa11et11111111111111111111111111", wallet.Address)
+		assert.Equal(t, "mainnet", wallet.Network)
 		assert.Equal(t, 30*time.Second, wallet.PollInterval)
 		assert.Equal(t, "active", wallet.Status)
 	})
@@ -102,7 +103,7 @@ func TestServerIntegration(t *testing.T) {
 	// Test 3: List wallets
 	t.Run("list wallets", func(t *testing.T) {
 		// Register another wallet
-		err := c.Register(ctx, "TestWa11et22222222222222222222222222", 60*time.Second)
+		err := c.Register(ctx, "TestWa11et22222222222222222222222222", "mainnet", 60*time.Second)
 		require.NoError(t, err)
 
 		wallets, err := c.List(ctx)
@@ -117,7 +118,7 @@ func TestServerIntegration(t *testing.T) {
 
 	// Test 4: Get non-existent wallet
 	t.Run("get non-existent wallet", func(t *testing.T) {
-		wallet, err := c.Get(ctx, "Nn5xistentWa11et333333333333333333")
+		wallet, err := c.Get(ctx, "Nn5xistentWa11et333333333333333333", "mainnet")
 		require.Error(t, err)
 		assert.Nil(t, wallet)
 		assert.Contains(t, err.Error(), "wallet not found")
@@ -125,31 +126,31 @@ func TestServerIntegration(t *testing.T) {
 
 	// Test 5: Unregister wallet
 	t.Run("unregister wallet", func(t *testing.T) {
-		err := c.Unregister(ctx, "TestWa11et11111111111111111111111111")
+		err := c.Unregister(ctx, "TestWa11et11111111111111111111111111", "mainnet")
 		require.NoError(t, err)
 
 		// Verify it's gone
-		wallet, err := c.Get(ctx, "TestWa11et11111111111111111111111111")
+		wallet, err := c.Get(ctx, "TestWa11et11111111111111111111111111", "mainnet")
 		require.Error(t, err)
 		assert.Nil(t, wallet)
 	})
 
 	// Test 6: Register with valid poll interval
 	t.Run("register with valid poll interval", func(t *testing.T) {
-		err := c.Register(ctx, "TestWa11et33333333333333333333333333", 5*time.Minute)
+		err := c.Register(ctx, "TestWa11et33333333333333333333333333", "mainnet", 5*time.Minute)
 		require.NoError(t, err)
 	})
 
 	// Test 7: Duplicate registration
 	t.Run("duplicate registration", func(t *testing.T) {
-		err := c.Register(ctx, "TestWa11et22222222222222222222222222", 30*time.Second)
+		err := c.Register(ctx, "TestWa11et22222222222222222222222222", "mainnet", 30*time.Second)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to register wallet")
 	})
 
 	// Test 8: Unregister non-existent wallet
 	t.Run("unregister non-existent wallet", func(t *testing.T) {
-		err := c.Unregister(ctx, "Nn5xistentWa11et444444444444444444")
+		err := c.Unregister(ctx, "Nn5xistentWa11et444444444444444444", "mainnet")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "wallet not found")
 	})

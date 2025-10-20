@@ -28,10 +28,11 @@ var (
 )
 
 // handleUnregisterWallet returns a handler that unregisters a wallet.
-// DELETE /api/v1/wallets/{address}
+// DELETE /api/v1/wallets/{address}?network={network}
 func handleUnregisterWallet(store *db.Store, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		address := r.PathValue("address")
+		network := r.URL.Query().Get("network")
 
 		// Validate address format (basic check)
 		if err := validateAddress(address); err != nil {
@@ -40,10 +41,17 @@ func handleUnregisterWallet(store *db.Store, logger *slog.Logger) http.Handler {
 			return
 		}
 
+		// Validate network
+		if err := validateNetwork(network); err != nil {
+			logger.Debug("invalid network", "network", network, "error", err)
+			writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		// Check if wallet exists
-		exists, err := store.WalletExists(r.Context(), address)
+		exists, err := store.WalletExists(r.Context(), address, network)
 		if err != nil {
-			logger.Error("failed to check wallet existence", "address", address, "error", err)
+			logger.Error("failed to check wallet existence", "address", address, "network", network, "error", err)
 			writeError(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -54,22 +62,23 @@ func handleUnregisterWallet(store *db.Store, logger *slog.Logger) http.Handler {
 		}
 
 		// Delete wallet
-		if err := store.DeleteWallet(r.Context(), address); err != nil {
-			logger.Error("failed to delete wallet", "address", address, "error", err)
+		if err := store.DeleteWallet(r.Context(), address, network); err != nil {
+			logger.Error("failed to delete wallet", "address", address, "network", network, "error", err)
 			writeError(w, "failed to unregister wallet", http.StatusInternalServerError)
 			return
 		}
 
-		logger.Info("wallet unregistered", "address", address)
+		logger.Info("wallet unregistered", "address", address, "network", network)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
 
 // handleGetWallet returns a handler that retrieves a wallet's details.
-// GET /api/v1/wallets/{address}
+// GET /api/v1/wallets/{address}?network={network}
 func handleGetWallet(store *db.Store, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		address := r.PathValue("address")
+		network := r.URL.Query().Get("network")
 
 		// Validate address format (basic check)
 		if err := validateAddress(address); err != nil {
@@ -78,18 +87,25 @@ func handleGetWallet(store *db.Store, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		wallet, err := store.GetWallet(r.Context(), address)
+		// Validate network
+		if err := validateNetwork(network); err != nil {
+			logger.Debug("invalid network", "network", network, "error", err)
+			writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		wallet, err := store.GetWallet(r.Context(), address, network)
 		if err != nil {
 			if err == pgx.ErrNoRows {
 				writeError(w, "wallet not found", http.StatusNotFound)
 				return
 			}
-			logger.Error("failed to get wallet", "address", address, "error", err)
+			logger.Error("failed to get wallet", "address", address, "network", network, "error", err)
 			writeError(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 
-		logger.Debug("wallet retrieved", "address", address)
+		logger.Debug("wallet retrieved", "address", address, "network", network)
 		resp := walletToResponse(wallet)
 		writeJSON(w, resp, http.StatusOK)
 	})
@@ -130,6 +146,7 @@ func handleRegisterWalletWithScheduler(store *db.Store, scheduler temporal.Sched
 
 		var req struct {
 			Address      string `json:"address"`
+			Network      string `json:"network"` // "mainnet" or "devnet"
 			PollInterval string `json:"poll_interval"`
 		}
 
@@ -151,6 +168,13 @@ func handleRegisterWalletWithScheduler(store *db.Store, scheduler temporal.Sched
 			return
 		}
 
+		// Validate network
+		if err := validateNetwork(req.Network); err != nil {
+			logger.Debug("invalid network", "network", req.Network, "error", err)
+			writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		// Parse and validate poll interval
 		pollInterval, err := time.ParseDuration(req.PollInterval)
 		if err != nil {
@@ -168,6 +192,7 @@ func handleRegisterWalletWithScheduler(store *db.Store, scheduler temporal.Sched
 		// Create wallet in database
 		params := db.CreateWalletParams{
 			Address:      req.Address,
+			Network:      req.Network,
 			PollInterval: pollInterval,
 			Status:       "active",
 		}
@@ -185,19 +210,19 @@ func handleRegisterWalletWithScheduler(store *db.Store, scheduler temporal.Sched
 		}
 
 		// Create Temporal schedule
-		if err := scheduler.CreateWalletSchedule(r.Context(), req.Address, pollInterval); err != nil {
-			logger.Error("failed to create schedule", "address", req.Address, "error", err)
+		if err := scheduler.CreateWalletSchedule(r.Context(), req.Address, req.Network, pollInterval); err != nil {
+			logger.Error("failed to create schedule", "address", req.Address, "network", req.Network, "error", err)
 
 			// Rollback: delete the wallet we just created
-			if delErr := store.DeleteWallet(r.Context(), req.Address); delErr != nil {
-				logger.Error("failed to rollback wallet creation", "address", req.Address, "error", delErr)
+			if delErr := store.DeleteWallet(r.Context(), req.Address, req.Network); delErr != nil {
+				logger.Error("failed to rollback wallet creation", "address", req.Address, "network", req.Network, "error", delErr)
 			}
 
 			writeError(w, "failed to create schedule for wallet", http.StatusInternalServerError)
 			return
 		}
 
-		logger.Info("wallet registered with schedule", "address", wallet.Address, "poll_interval", wallet.PollInterval)
+		logger.Info("wallet registered with schedule", "address", wallet.Address, "network", req.Network, "poll_interval", wallet.PollInterval)
 
 		// Return wallet
 		resp := walletToResponse(wallet)
@@ -207,10 +232,11 @@ func handleRegisterWalletWithScheduler(store *db.Store, scheduler temporal.Sched
 
 // handleUnregisterWalletWithScheduler returns a handler that unregisters a wallet
 // and deletes its Temporal schedule.
-// DELETE /api/v1/wallets/{address}
+// DELETE /api/v1/wallets/{address}?network={network}
 func handleUnregisterWalletWithScheduler(store *db.Store, scheduler temporal.Scheduler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		address := r.PathValue("address")
+		network := r.URL.Query().Get("network")
 
 		// Validate address format
 		if err := validateAddress(address); err != nil {
@@ -219,10 +245,17 @@ func handleUnregisterWalletWithScheduler(store *db.Store, scheduler temporal.Sch
 			return
 		}
 
+		// Validate network
+		if err := validateNetwork(network); err != nil {
+			logger.Debug("invalid network", "network", network, "error", err)
+			writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		// Check if wallet exists
-		exists, err := store.WalletExists(r.Context(), address)
+		exists, err := store.WalletExists(r.Context(), address, network)
 		if err != nil {
-			logger.Error("failed to check wallet existence", "address", address, "error", err)
+			logger.Error("failed to check wallet existence", "address", address, "network", network, "error", err)
 			writeError(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -234,22 +267,22 @@ func handleUnregisterWalletWithScheduler(store *db.Store, scheduler temporal.Sch
 
 		// Delete Temporal schedule first (before DB)
 		// If this fails, we don't want to delete the wallet from DB
-		if err := scheduler.DeleteWalletSchedule(r.Context(), address); err != nil {
-			logger.Error("failed to delete schedule", "address", address, "error", err)
+		if err := scheduler.DeleteWalletSchedule(r.Context(), address, network); err != nil {
+			logger.Error("failed to delete schedule", "address", address, "network", network, "error", err)
 			writeError(w, "failed to delete schedule for wallet", http.StatusInternalServerError)
 			return
 		}
 
 		// Delete wallet from database
-		if err := store.DeleteWallet(r.Context(), address); err != nil {
-			logger.Error("failed to delete wallet", "address", address, "error", err)
+		if err := store.DeleteWallet(r.Context(), address, network); err != nil {
+			logger.Error("failed to delete wallet", "address", address, "network", network, "error", err)
 			// Schedule is already deleted but DB deletion failed
 			// This is an inconsistent state, but schedule can be cleaned up by reconciliation
 			writeError(w, "failed to unregister wallet", http.StatusInternalServerError)
 			return
 		}
 
-		logger.Info("wallet unregistered with schedule", "address", address)
+		logger.Info("wallet unregistered with schedule", "address", address, "network", network)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
@@ -257,6 +290,7 @@ func handleUnregisterWalletWithScheduler(store *db.Store, scheduler temporal.Sch
 // walletResponse is the JSON response format for a wallet.
 type walletResponse struct {
 	Address      string     `json:"address"`
+	Network      string     `json:"network"`
 	PollInterval string     `json:"poll_interval"`
 	LastPollTime *time.Time `json:"last_poll_time,omitempty"`
 	Status       string     `json:"status"`
@@ -268,6 +302,7 @@ type walletResponse struct {
 func walletToResponse(w *db.Wallet) walletResponse {
 	return walletResponse{
 		Address:      w.Address,
+		Network:      w.Network,
 		PollInterval: w.PollInterval.String(),
 		LastPollTime: w.LastPollTime,
 		Status:       w.Status,
@@ -322,6 +357,19 @@ func validateAddress(address string) error {
 	// For now we just check alphanumeric with valid base58 chars
 	if !validAddressRegex.MatchString(address) {
 		return errorf("invalid address format: must contain only valid base58 characters")
+	}
+
+	return nil
+}
+
+// validateNetwork validates a network parameter.
+func validateNetwork(network string) error {
+	if network == "" {
+		return errorf("network is required")
+	}
+
+	if network != "mainnet" && network != "devnet" {
+		return errorf("invalid network: must be 'mainnet' or 'devnet'")
 	}
 
 	return nil

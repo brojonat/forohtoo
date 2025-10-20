@@ -174,7 +174,10 @@ make db-migrate-up
 
 # Set required environment variables (or copy .env.example to .env)
 export DATABASE_URL="postgres://postgres:postgres@localhost:5432/forohtoo?sslmode=disable"
-export SOLANA_RPC_URL="https://api.mainnet-beta.solana.com"
+export SOLANA_MAINNET_RPC_URL="https://api.mainnet-beta.solana.com"
+export SOLANA_DEVNET_RPC_URL="https://api.devnet.solana.com"
+export USDC_MAINNET_MINT_ADDRESS="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+export USDC_DEVNET_MINT_ADDRESS="4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
 ```
 
 The system consists of **two separate processes** that run independently:
@@ -193,10 +196,10 @@ Listens on `:8080` by default. Provides endpoints for:
 
 **Wallet Management:**
 
-- `POST /api/v1/wallets` - Register a wallet for polling
+- `POST /api/v1/wallets` - Register a wallet for polling (requires `network` in JSON body)
 - `GET /api/v1/wallets` - List all registered wallets
-- `GET /api/v1/wallets/{address}` - Get wallet details
-- `DELETE /api/v1/wallets/{address}` - Unregister a wallet
+- `GET /api/v1/wallets/{address}?network={network}` - Get wallet details
+- `DELETE /api/v1/wallets/{address}?network={network}` - Unregister a wallet
 
 **Transaction Streaming (SSE):**
 
@@ -462,19 +465,22 @@ log.Printf("Payment received: %s (%.4f SOL)", txn.Signature, float64(txn.Amount)
 
 ```bash
 # Block until transaction with workflow_id arrives (using jq filter)
-forohtoo wallet await --must-jq '. | contains({workflow_id: "payment-workflow-123"})' \
+forohtoo wallet await --network mainnet \
+  --must-jq '. | contains({workflow_id: "payment-workflow-123"})' \
   YOUR_WALLET
 
-# Block until specific signature arrives
-forohtoo wallet await --signature SIG_HERE YOUR_WALLET
+# Block until specific signature arrives on devnet
+forohtoo wallet await --network devnet --signature SIG_HERE YOUR_WALLET
 
 # JSON output for automation
-forohtoo wallet await --must-jq '. | contains({workflow_id: "xyz"})' \
+forohtoo wallet await --network mainnet \
+  --must-jq '. | contains({workflow_id: "xyz"})' \
   --json \
   YOUR_WALLET
 
 # Custom timeout
-forohtoo wallet await --must-jq '. | contains({workflow_id: "xyz"})' \
+forohtoo wallet await --network mainnet \
+  --must-jq '. | contains({workflow_id: "xyz"})' \
   --timeout 10m \
   YOUR_WALLET
 ```
@@ -622,7 +628,7 @@ See [TESTING.md](./TESTING.md) for detailed testing instructions.
 - Issue the following client command to subscribe to the wallet:
 
 ```bash
-forohtoo wallet add $INCENTIVIZETHIS_ESCROW_WALLET
+forohtoo wallet add --network mainnet $INCENTIVIZETHIS_ESCROW_WALLET
 ```
 
 - You should start to see transactions flowing in if by some miracle IncentivizeThis is paying out. If traffic is low, you can just send yourself some USDC and you should see the transaction in your browser. Cool, you should be convinced the system is working.
@@ -630,7 +636,8 @@ forohtoo wallet add $INCENTIVIZETHIS_ESCROW_WALLET
 - Next, run the `await` command to block until a transaction matching the IncentivizeThis criteria arrives:
 
 ```bash
-forohtoo wallet await --usdc-amount-equal 0.42 \
+forohtoo wallet await --network mainnet \
+  --usdc-amount-equal 0.42 \
   --must-jq '. | contains({workflow_id: "some-id"})' \
   $INCENTIVIZETHIS_ESCROW_WALLET
 ```

@@ -42,6 +42,12 @@ func walletAddCommand() *cli.Command {
 				Usage:   "HTTP server URL",
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
+			&cli.StringFlag{
+				Name:    "network",
+				Aliases: []string{"n"},
+				Value:   "mainnet",
+				Usage:   "Network to monitor (mainnet or devnet)",
+			},
 			&cli.DurationFlag{
 				Name:    "poll-interval",
 				Aliases: []string{"i"},
@@ -61,8 +67,14 @@ func walletAddCommand() *cli.Command {
 
 			address := c.Args().Get(0)
 			serverURL := c.String("server")
+			network := c.String("network")
 			pollInterval := c.Duration("poll-interval")
 			jsonOutput := c.Bool("json")
+
+			// Validate network
+			if network != "mainnet" && network != "devnet" {
+				return fmt.Errorf("invalid network: must be 'mainnet' or 'devnet'")
+			}
 
 			logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 				Level: slog.LevelError,
@@ -70,7 +82,7 @@ func walletAddCommand() *cli.Command {
 
 			cl := client.NewClient(serverURL, nil, logger)
 
-			if err := cl.Register(context.Background(), address, pollInterval); err != nil {
+			if err := cl.Register(context.Background(), address, network, pollInterval); err != nil {
 				return fmt.Errorf("failed to register wallet: %w", err)
 			}
 
@@ -106,6 +118,12 @@ func walletRemoveCommand() *cli.Command {
 				Usage:   "HTTP server URL",
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
+			&cli.StringFlag{
+				Name:    "network",
+				Aliases: []string{"n"},
+				Value:   "mainnet",
+				Usage:   "Network (mainnet or devnet)",
+			},
 			&cli.BoolFlag{
 				Name:    "json",
 				Aliases: []string{"j"},
@@ -119,7 +137,13 @@ func walletRemoveCommand() *cli.Command {
 
 			address := c.Args().Get(0)
 			serverURL := c.String("server")
+			network := c.String("network")
 			jsonOutput := c.Bool("json")
+
+			// Validate network
+			if network != "mainnet" && network != "devnet" {
+				return fmt.Errorf("invalid network: must be 'mainnet' or 'devnet'")
+			}
 
 			logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 				Level: slog.LevelError,
@@ -127,19 +151,21 @@ func walletRemoveCommand() *cli.Command {
 
 			cl := client.NewClient(serverURL, nil, logger)
 
-			if err := cl.Unregister(context.Background(), address); err != nil {
+			if err := cl.Unregister(context.Background(), address, network); err != nil {
 				return fmt.Errorf("failed to unregister wallet: %w", err)
 			}
 
 			if jsonOutput {
 				data, _ := json.Marshal(map[string]interface{}{
 					"address": address,
+					"network": network,
 					"status":  "unregistered",
 				})
 				fmt.Println(string(data))
 			} else {
 				fmt.Printf("✓ Wallet unregistered successfully\n")
 				fmt.Printf("  Address: %s\n", address)
+				fmt.Printf("  Network: %s\n", network)
 			}
 
 			return nil
@@ -161,6 +187,12 @@ func walletGetCommand() *cli.Command {
 				Usage:   "HTTP server URL",
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
+			&cli.StringFlag{
+				Name:    "network",
+				Aliases: []string{"n"},
+				Value:   "mainnet",
+				Usage:   "Network (mainnet or devnet)",
+			},
 			&cli.BoolFlag{
 				Name:    "json",
 				Aliases: []string{"j"},
@@ -174,7 +206,13 @@ func walletGetCommand() *cli.Command {
 
 			address := c.Args().Get(0)
 			serverURL := c.String("server")
+			network := c.String("network")
 			jsonOutput := c.Bool("json")
+
+			// Validate network
+			if network != "mainnet" && network != "devnet" {
+				return fmt.Errorf("invalid network: must be 'mainnet' or 'devnet'")
+			}
 
 			logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 				Level: slog.LevelError,
@@ -182,7 +220,7 @@ func walletGetCommand() *cli.Command {
 
 			cl := client.NewClient(serverURL, nil, logger)
 
-			wallet, err := cl.Get(context.Background(), address)
+			wallet, err := cl.Get(context.Background(), address, network)
 			if err != nil {
 				return fmt.Errorf("failed to get wallet: %w", err)
 			}
@@ -195,6 +233,7 @@ func walletGetCommand() *cli.Command {
 				fmt.Println("Wallet Details")
 				fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 				fmt.Printf("Address:       %s\n", wallet.Address)
+				fmt.Printf("Network:       %s\n", wallet.Network)
 				fmt.Printf("Status:        %s\n", wallet.Status)
 				fmt.Printf("Poll Interval: %s\n", wallet.PollInterval)
 				if wallet.LastPollTime != nil {
@@ -292,6 +331,12 @@ func awaitCommand() *cli.Command {
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
 			&cli.StringFlag{
+				Name:    "network",
+				Aliases: []string{"n"},
+				Value:   "mainnet",
+				Usage:   "Network (mainnet or devnet)",
+			},
+			&cli.StringFlag{
 				Name:  "signature",
 				Usage: "Filter by exact transaction signature",
 			},
@@ -323,11 +368,17 @@ func awaitCommand() *cli.Command {
 
 			address := c.Args().Get(0)
 			serverURL := c.String("server")
+			network := c.String("network")
 			signature := c.String("signature")
 			usdcAmount := c.Float64("usdc-amount-equal")
 			jqFilters := c.StringSlice("must-jq")
 			timeout := c.Duration("timeout")
 			jsonOutput := c.Bool("json")
+
+			// Validate network
+			if network != "mainnet" && network != "devnet" {
+				return fmt.Errorf("invalid network: must be 'mainnet' or 'devnet'")
+			}
 
 			// Require at least one filter
 			if signature == "" && usdcAmount == 0 && len(jqFilters) == 0 {
@@ -436,7 +487,7 @@ func awaitCommand() *cli.Command {
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 
-			txn, err := cl.Await(ctx, address, matcher)
+			txn, err := cl.Await(ctx, address, network, matcher)
 			if err != nil {
 				return fmt.Errorf("failed to await transaction: %w", err)
 			}
@@ -484,6 +535,12 @@ func walletTransactionsCommand() *cli.Command {
 				Usage:   "HTTP server URL",
 				EnvVars: []string{"FOROHTOO_SERVER_URL"},
 			},
+			&cli.StringFlag{
+				Name:    "network",
+				Aliases: []string{"n"},
+				Value:   "mainnet",
+				Usage:   "Network (mainnet or devnet)",
+			},
 			&cli.IntFlag{
 				Name:    "limit",
 				Aliases: []string{"l"},
@@ -509,9 +566,15 @@ func walletTransactionsCommand() *cli.Command {
 
 			address := c.Args().Get(0)
 			serverURL := c.String("server")
+			network := c.String("network")
 			limit := c.Int("limit")
 			offset := c.Int("offset")
 			jsonOutput := c.Bool("json")
+
+			// Validate network
+			if network != "mainnet" && network != "devnet" {
+				return fmt.Errorf("invalid network: must be 'mainnet' or 'devnet'")
+			}
 
 			if limit < 1 || limit > 1000 {
 				return fmt.Errorf("limit must be between 1 and 1000")
@@ -526,7 +589,7 @@ func walletTransactionsCommand() *cli.Command {
 
 			cl := client.NewClient(serverURL, nil, logger)
 
-			transactions, err := cl.ListTransactions(context.Background(), address, limit, offset)
+			transactions, err := cl.ListTransactions(context.Background(), address, network, limit, offset)
 			if err != nil {
 				return fmt.Errorf("failed to list transactions: %w", err)
 			}

@@ -23,6 +23,7 @@ func TestRegister_Success(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, "wallet123", body["address"])
+		assert.Equal(t, "mainnet", body["network"])
 		assert.Equal(t, "30s", body["poll_interval"])
 
 		w.WriteHeader(http.StatusCreated)
@@ -30,7 +31,7 @@ func TestRegister_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, nil, nil)
-	err := client.Register(context.Background(), "wallet123", 30*time.Second)
+	err := client.Register(context.Background(), "wallet123", "mainnet", 30*time.Second)
 	assert.NoError(t, err)
 }
 
@@ -45,7 +46,7 @@ func TestRegister_ServerError(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, nil, nil)
-	err := client.Register(context.Background(), "invalid", 30*time.Second)
+	err := client.Register(context.Background(), "invalid", "mainnet", 30*time.Second)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid wallet address")
 }
@@ -54,13 +55,14 @@ func TestUnregister_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "DELETE", r.Method)
 		assert.Equal(t, "/api/v1/wallets/wallet123", r.URL.Path)
+		assert.Equal(t, "mainnet", r.URL.Query().Get("network"))
 
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, nil, nil)
-	err := client.Unregister(context.Background(), "wallet123")
+	err := client.Unregister(context.Background(), "wallet123", "mainnet")
 	assert.NoError(t, err)
 }
 
@@ -75,7 +77,7 @@ func TestUnregister_NotFound(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, nil, nil)
-	err := client.Unregister(context.Background(), "nonexistent")
+	err := client.Unregister(context.Background(), "nonexistent", "mainnet")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "wallet not found")
 }
@@ -87,10 +89,12 @@ func TestGet_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "GET", r.Method)
 		assert.Equal(t, "/api/v1/wallets/wallet123", r.URL.Path)
+		assert.Equal(t, "mainnet", r.URL.Query().Get("network"))
 
 		// Return response in server format (poll_interval as string)
 		response := map[string]interface{}{
 			"address":        "wallet123",
+			"network":        "mainnet",
 			"poll_interval":  "30s",
 			"last_poll_time": lastPoll,
 			"status":         "active",
@@ -105,11 +109,12 @@ func TestGet_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, nil, nil)
-	wallet, err := client.Get(context.Background(), "wallet123")
+	wallet, err := client.Get(context.Background(), "wallet123", "mainnet")
 	require.NoError(t, err)
 	require.NotNil(t, wallet)
 
 	assert.Equal(t, "wallet123", wallet.Address)
+	assert.Equal(t, "mainnet", wallet.Network)
 	assert.Equal(t, 30*time.Second, wallet.PollInterval)
 	assert.Equal(t, "active", wallet.Status)
 	assert.NotNil(t, wallet.LastPollTime)
@@ -126,7 +131,7 @@ func TestGet_NotFound(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, nil, nil)
-	wallet, err := client.Get(context.Background(), "nonexistent")
+	wallet, err := client.Get(context.Background(), "nonexistent", "mainnet")
 	require.Error(t, err)
 	assert.Nil(t, wallet)
 	assert.Contains(t, err.Error(), "wallet not found")

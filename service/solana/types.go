@@ -8,6 +8,7 @@ import (
 // This is our domain model, independent of the RPC response format.
 type Transaction struct {
 	Signature   string
+	Network     string  // "mainnet" or "devnet"
 	Slot        uint64
 	BlockTime   time.Time
 	Amount      uint64

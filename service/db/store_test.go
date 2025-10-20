@@ -26,6 +26,7 @@ func TestCreateTransaction(t *testing.T) {
 		params := CreateTransactionParams{
 			Signature:          "sig123",
 			WalletAddress:      "wallet123",
+			Network:            "mainnet",
 			Slot:               12345,
 			BlockTime:          now,
 			Amount:             1000000,
@@ -56,6 +57,7 @@ func TestCreateTransaction(t *testing.T) {
 		params := CreateTransactionParams{
 			Signature:          "sig456",
 			WalletAddress:      "wallet123",
+			Network:            "mainnet",
 			Slot:               12346,
 			BlockTime:          now.Add(time.Minute),
 			Amount:             1000000, // 1 USDC (6 decimals)
@@ -79,6 +81,7 @@ func TestCreateTransaction(t *testing.T) {
 		params := CreateTransactionParams{
 			Signature:          "sig123", // Already exists
 			WalletAddress:      "wallet456",
+			Network:            "mainnet",
 			Slot:               12347,
 			BlockTime:          now, // Same block_time as first transaction
 			Amount:             2000000,
@@ -104,6 +107,7 @@ func TestGetTransaction(t *testing.T) {
 	params := CreateTransactionParams{
 		Signature:          "sig789",
 		WalletAddress:      "wallet123",
+		Network:            "mainnet",
 		Slot:               12345,
 		BlockTime:          now,
 		Amount:             1000000,
@@ -115,18 +119,19 @@ func TestGetTransaction(t *testing.T) {
 
 	// Test retrieving the transaction
 	t.Run("get existing transaction", func(t *testing.T) {
-		txn, err := store.GetTransaction(ctx, "sig789")
+		txn, err := store.GetTransaction(ctx, "sig789", "mainnet")
 		require.NoError(t, err)
 		require.NotNil(t, txn)
 
 		assert.Equal(t, created.Signature, txn.Signature)
 		assert.Equal(t, created.WalletAddress, txn.WalletAddress)
+		assert.Equal(t, created.Network, txn.Network)
 		assert.Equal(t, created.Amount, txn.Amount)
 	})
 
 	// Test retrieving non-existent transaction
 	t.Run("get non-existent transaction", func(t *testing.T) {
-		_, err := store.GetTransaction(ctx, "nonexistent")
+		_, err := store.GetTransaction(ctx, "nonexistent", "mainnet")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, pgx.ErrNoRows)
 	})
@@ -148,6 +153,7 @@ func TestListTransactionsByWallet(t *testing.T) {
 		params := CreateTransactionParams{
 			Signature:          "sig" + string(rune('A'+i)),
 			WalletAddress:      wallet,
+			Network:            "mainnet",
 			Slot:               int64(12345 + i),
 			BlockTime:          now.Add(time.Duration(i) * time.Minute),
 			Amount:             int64(1000000 * (i + 1)),
@@ -162,6 +168,7 @@ func TestListTransactionsByWallet(t *testing.T) {
 		params := CreateTransactionParams{
 			Signature:          "sig" + string(rune('X'+i)),
 			WalletAddress:      "wallet456",
+			Network:            "mainnet",
 			Slot:               int64(22345 + i),
 			BlockTime:          now.Add(time.Duration(i) * time.Minute),
 			Amount:             int64(2000000 * (i + 1)),
@@ -245,6 +252,7 @@ func TestListTransactionsByWalletAndTimeRange(t *testing.T) {
 		params := CreateTransactionParams{
 			Signature:          "time" + string(rune('A'+i)),
 			WalletAddress:      wallet,
+			Network:            "mainnet",
 			Slot:               int64(12345 + i),
 			BlockTime:          blockTime,
 			Amount:             int64(1000000 * (i + 1)),
@@ -290,6 +298,7 @@ func TestCountTransactionsByWallet(t *testing.T) {
 		params := CreateTransactionParams{
 			Signature:          "count" + string(rune('A'+i)),
 			WalletAddress:      wallet,
+			Network:            "mainnet",
 			Slot:               int64(12345 + i),
 			BlockTime:          now.Add(time.Duration(i) * time.Minute),
 			Amount:             1000000,
@@ -299,12 +308,12 @@ func TestCountTransactionsByWallet(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	count, err := store.CountTransactionsByWallet(ctx, wallet)
+	count, err := store.CountTransactionsByWallet(ctx, wallet, "mainnet")
 	require.NoError(t, err)
 	assert.Equal(t, int64(7), count)
 
 	// Count for wallet with no transactions
-	count, err = store.CountTransactionsByWallet(ctx, "nonexistent")
+	count, err = store.CountTransactionsByWallet(ctx, "nonexistent", "mainnet")
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), count)
 }
@@ -326,6 +335,7 @@ func TestGetLatestTransactionByWallet(t *testing.T) {
 		params := CreateTransactionParams{
 			Signature:          "latest" + string(rune('A'+i)),
 			WalletAddress:      wallet,
+			Network:            "mainnet",
 			Slot:               int64(12345 + i),
 			BlockTime:          now.Add(time.Duration(i) * time.Minute),
 			Amount:             1000000,
@@ -335,7 +345,7 @@ func TestGetLatestTransactionByWallet(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	txn, err := store.GetLatestTransactionByWallet(ctx, wallet)
+	txn, err := store.GetLatestTransactionByWallet(ctx, wallet, "mainnet")
 	require.NoError(t, err)
 	assert.Equal(t, "latestC", txn.Signature) // Should be the last one created
 }
@@ -364,6 +374,7 @@ func TestGetTransactionsSince(t *testing.T) {
 		params := CreateTransactionParams{
 			Signature:          "since" + string(rune('A'+i)),
 			WalletAddress:      wallet,
+			Network:            "mainnet",
 			Slot:               int64(12345 + i),
 			BlockTime:          blockTime,
 			Amount:             1000000,
@@ -375,7 +386,7 @@ func TestGetTransactionsSince(t *testing.T) {
 
 	// Get transactions since 15 minutes after base time
 	since := baseTime.Add(15 * time.Minute)
-	txns, err := store.GetTransactionsSince(ctx, wallet, since)
+	txns, err := store.GetTransactionsSince(ctx, wallet, "mainnet", since)
 	require.NoError(t, err)
 
 	// Should get transactions at 20min and 30min (but not 10min)
@@ -403,6 +414,7 @@ func TestDeleteTransactionsOlderThan(t *testing.T) {
 		params := CreateTransactionParams{
 			Signature:          "old" + string(rune('A'+i)),
 			WalletAddress:      wallet,
+			Network:            "mainnet",
 			Slot:               int64(12345 + i),
 			BlockTime:          baseTime.Add(time.Duration(i) * time.Hour),
 			Amount:             1000000,
@@ -417,6 +429,7 @@ func TestDeleteTransactionsOlderThan(t *testing.T) {
 		params := CreateTransactionParams{
 			Signature:          "new" + string(rune('A'+i)),
 			WalletAddress:      wallet,
+			Network:            "mainnet",
 			Slot:               int64(22345 + i),
 			BlockTime:          baseTime.Add(time.Duration(10+i) * time.Hour),
 			Amount:             1000000,
@@ -432,7 +445,7 @@ func TestDeleteTransactionsOlderThan(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify old transactions are deleted
-	count, err := store.CountTransactionsByWallet(ctx, wallet)
+	count, err := store.CountTransactionsByWallet(ctx, wallet, "mainnet")
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), count) // Only the 2 newer transactions remain
 
