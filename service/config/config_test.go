@@ -15,7 +15,10 @@ func TestLoad_ValidConfig(t *testing.T) {
 
 	// Setup environment variables
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
-	os.Setenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("SOLANA_MAINNET_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("SOLANA_DEVNET_RPC_URL", "https://api.devnet.solana.com")
+	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
 	defer cleanupEnv()
 
 	cfg, err := Load()
@@ -23,7 +26,10 @@ func TestLoad_ValidConfig(t *testing.T) {
 	require.NotNil(t, cfg)
 
 	assert.Equal(t, "postgres://localhost/test", cfg.DatabaseURL)
-	assert.Equal(t, "https://api.mainnet-beta.solana.com", cfg.SolanaRPCURL)
+	assert.Equal(t, "https://api.mainnet-beta.solana.com", cfg.SolanaMainnetRPCURL)
+	assert.Equal(t, "https://api.devnet.solana.com", cfg.SolanaDevnetRPCURL)
+	assert.Equal(t, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", cfg.USDCMainnetMintAddress)
+	assert.Equal(t, "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", cfg.USDCDevnetMintAddress)
 	assert.Equal(t, ":8080", cfg.ServerAddr) // Default
 	assert.Equal(t, "info", cfg.LogLevel)    // Default
 	assert.Equal(t, 30*time.Second, cfg.DefaultPollInterval)
@@ -31,7 +37,10 @@ func TestLoad_ValidConfig(t *testing.T) {
 }
 
 func TestLoad_MissingDatabaseURL(t *testing.T) {
-	os.Setenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("SOLANA_MAINNET_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("SOLANA_DEVNET_RPC_URL", "https://api.devnet.solana.com")
+	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
 	defer cleanupEnv()
 
 	cfg, err := Load()
@@ -40,19 +49,38 @@ func TestLoad_MissingDatabaseURL(t *testing.T) {
 	assert.Contains(t, err.Error(), "DATABASE_URL is required")
 }
 
-func TestLoad_MissingSolanaRPCURL(t *testing.T) {
+func TestLoad_MissingMainnetRPCURL(t *testing.T) {
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
+	os.Setenv("SOLANA_DEVNET_RPC_URL", "https://api.devnet.solana.com")
+	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
 	defer cleanupEnv()
 
 	cfg, err := Load()
 	require.Error(t, err)
 	assert.Nil(t, cfg)
-	assert.Contains(t, err.Error(), "SOLANA_RPC_URL is required")
+	assert.Contains(t, err.Error(), "SOLANA_MAINNET_RPC_URL is required")
+}
+
+func TestLoad_MissingDevnetRPCURL(t *testing.T) {
+	os.Setenv("DATABASE_URL", "postgres://localhost/test")
+	os.Setenv("SOLANA_MAINNET_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
+	defer cleanupEnv()
+
+	cfg, err := Load()
+	require.Error(t, err)
+	assert.Nil(t, cfg)
+	assert.Contains(t, err.Error(), "SOLANA_DEVNET_RPC_URL is required")
 }
 
 func TestLoad_InvalidPollInterval(t *testing.T) {
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
-	os.Setenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("SOLANA_MAINNET_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("SOLANA_DEVNET_RPC_URL", "https://api.devnet.solana.com")
+	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
 	os.Setenv("DEFAULT_POLL_INTERVAL", "invalid")
 	defer cleanupEnv()
 
@@ -64,7 +92,10 @@ func TestLoad_InvalidPollInterval(t *testing.T) {
 
 func TestLoad_MinIntervalGreaterThanDefault(t *testing.T) {
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
-	os.Setenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("SOLANA_MAINNET_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("SOLANA_DEVNET_RPC_URL", "https://api.devnet.solana.com")
+	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
 	os.Setenv("DEFAULT_POLL_INTERVAL", "10s")
 	os.Setenv("MIN_POLL_INTERVAL", "30s")
 	defer cleanupEnv()
@@ -77,7 +108,10 @@ func TestLoad_MinIntervalGreaterThanDefault(t *testing.T) {
 
 func TestLoad_CustomValues(t *testing.T) {
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
-	os.Setenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("SOLANA_MAINNET_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("SOLANA_DEVNET_RPC_URL", "https://api.devnet.solana.com")
+	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
 	os.Setenv("SERVER_ADDR", ":9090")
 	os.Setenv("LOG_LEVEL", "debug")
 	os.Setenv("NATS_URL", "nats://nats.example.com:4222")
@@ -102,13 +136,16 @@ func TestLoad_CustomValues(t *testing.T) {
 
 func TestValidate_ValidConfig(t *testing.T) {
 	cfg := &Config{
-		DatabaseURL:         "postgres://localhost/test",
-		SolanaRPCURL:        "https://api.mainnet-beta.solana.com",
-		TemporalHost:        "localhost:7233",
-		TemporalNamespace:   "default",
-		TemporalTaskQueue:   "forohtoo-wallet-polling",
-		DefaultPollInterval: 30 * time.Second,
-		MinPollInterval:     10 * time.Second,
+		DatabaseURL:            "postgres://localhost/test",
+		SolanaMainnetRPCURL:    "https://api.mainnet-beta.solana.com",
+		SolanaDevnetRPCURL:     "https://api.devnet.solana.com",
+		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+		TemporalHost:           "localhost:7233",
+		TemporalNamespace:      "default",
+		TemporalTaskQueue:      "forohtoo-wallet-polling",
+		DefaultPollInterval:    30 * time.Second,
+		MinPollInterval:        10 * time.Second,
 	}
 
 	err := cfg.Validate()
@@ -117,12 +154,15 @@ func TestValidate_ValidConfig(t *testing.T) {
 
 func TestValidate_MissingDatabaseURL(t *testing.T) {
 	cfg := &Config{
-		SolanaRPCURL:        "https://api.mainnet-beta.solana.com",
-		TemporalHost:        "localhost:7233",
-		TemporalNamespace:   "default",
-		TemporalTaskQueue:   "forohtoo-wallet-polling",
-		DefaultPollInterval: 30 * time.Second,
-		MinPollInterval:     10 * time.Second,
+		SolanaMainnetRPCURL:    "https://api.mainnet-beta.solana.com",
+		SolanaDevnetRPCURL:     "https://api.devnet.solana.com",
+		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+		TemporalHost:           "localhost:7233",
+		TemporalNamespace:      "default",
+		TemporalTaskQueue:      "forohtoo-wallet-polling",
+		DefaultPollInterval:    30 * time.Second,
+		MinPollInterval:        10 * time.Second,
 	}
 
 	err := cfg.Validate()
@@ -132,13 +172,16 @@ func TestValidate_MissingDatabaseURL(t *testing.T) {
 
 func TestValidate_InvalidIntervals(t *testing.T) {
 	cfg := &Config{
-		DatabaseURL:         "postgres://localhost/test",
-		SolanaRPCURL:        "https://api.mainnet-beta.solana.com",
-		TemporalHost:        "localhost:7233",
-		TemporalNamespace:   "default",
-		TemporalTaskQueue:   "forohtoo-wallet-polling",
-		DefaultPollInterval: 10 * time.Second,
-		MinPollInterval:     30 * time.Second,
+		DatabaseURL:            "postgres://localhost/test",
+		SolanaMainnetRPCURL:    "https://api.mainnet-beta.solana.com",
+		SolanaDevnetRPCURL:     "https://api.devnet.solana.com",
+		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+		TemporalHost:           "localhost:7233",
+		TemporalNamespace:      "default",
+		TemporalTaskQueue:      "forohtoo-wallet-polling",
+		DefaultPollInterval:    10 * time.Second,
+		MinPollInterval:        30 * time.Second,
 	}
 
 	err := cfg.Validate()
@@ -148,13 +191,16 @@ func TestValidate_InvalidIntervals(t *testing.T) {
 
 func TestValidate_TooShortInterval(t *testing.T) {
 	cfg := &Config{
-		DatabaseURL:         "postgres://localhost/test",
-		SolanaRPCURL:        "https://api.mainnet-beta.solana.com",
-		TemporalHost:        "localhost:7233",
-		TemporalNamespace:   "default",
-		TemporalTaskQueue:   "forohtoo-wallet-polling",
-		DefaultPollInterval: 500 * time.Millisecond,
-		MinPollInterval:     100 * time.Millisecond,
+		DatabaseURL:            "postgres://localhost/test",
+		SolanaMainnetRPCURL:    "https://api.mainnet-beta.solana.com",
+		SolanaDevnetRPCURL:     "https://api.devnet.solana.com",
+		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+		TemporalHost:           "localhost:7233",
+		TemporalNamespace:      "default",
+		TemporalTaskQueue:      "forohtoo-wallet-polling",
+		DefaultPollInterval:    500 * time.Millisecond,
+		MinPollInterval:        100 * time.Millisecond,
 	}
 
 	err := cfg.Validate()
@@ -173,7 +219,10 @@ func TestMustLoad_Panics(t *testing.T) {
 
 func TestMustLoad_Success(t *testing.T) {
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
-	os.Setenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("SOLANA_MAINNET_RPC_URL", "https://api.mainnet-beta.solana.com")
+	os.Setenv("SOLANA_DEVNET_RPC_URL", "https://api.devnet.solana.com")
+	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
 	defer cleanupEnv()
 
 	assert.NotPanics(t, func() {
@@ -185,7 +234,10 @@ func TestMustLoad_Success(t *testing.T) {
 // cleanupEnv clears all environment variables used in tests
 func cleanupEnv() {
 	os.Unsetenv("DATABASE_URL")
-	os.Unsetenv("SOLANA_RPC_URL")
+	os.Unsetenv("SOLANA_MAINNET_RPC_URL")
+	os.Unsetenv("SOLANA_DEVNET_RPC_URL")
+	os.Unsetenv("USDC_MAINNET_MINT_ADDRESS")
+	os.Unsetenv("USDC_DEVNET_MINT_ADDRESS")
 	os.Unsetenv("SERVER_ADDR")
 	os.Unsetenv("LOG_LEVEL")
 	os.Unsetenv("NATS_URL")

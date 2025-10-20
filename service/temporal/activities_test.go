@@ -40,32 +40,32 @@ func (m *MockStore) CreateTransaction(ctx context.Context, params db.CreateTrans
 	return args.Get(0).(*db.Transaction), args.Error(1)
 }
 
-func (m *MockStore) UpdateWalletPollTime(ctx context.Context, address string, pollTime time.Time) (*db.Wallet, error) {
-	args := m.Called(ctx, address, pollTime)
+func (m *MockStore) UpdateWalletPollTime(ctx context.Context, address string, network string, pollTime time.Time) (*db.Wallet, error) {
+	args := m.Called(ctx, address, network, pollTime)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*db.Wallet), args.Error(1)
 }
 
-func (m *MockStore) GetTransaction(ctx context.Context, signature string) (*db.Transaction, error) {
-	args := m.Called(ctx, signature)
+func (m *MockStore) GetTransaction(ctx context.Context, signature string, network string) (*db.Transaction, error) {
+	args := m.Called(ctx, signature, network)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*db.Transaction), args.Error(1)
 }
 
-func (m *MockStore) GetWallet(ctx context.Context, address string) (*db.Wallet, error) {
-	args := m.Called(ctx, address)
+func (m *MockStore) GetWallet(ctx context.Context, address string, network string) (*db.Wallet, error) {
+	args := m.Called(ctx, address, network)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*db.Wallet), args.Error(1)
 }
 
-func (m *MockStore) GetTransactionSignaturesByWallet(ctx context.Context, walletAddress string, since *time.Time, limit int32) ([]string, error) {
-	args := m.Called(ctx, walletAddress, since, limit)
+func (m *MockStore) GetTransactionSignaturesByWallet(ctx context.Context, walletAddress string, network string, since *time.Time, limit int32) ([]string, error) {
+	args := m.Called(ctx, walletAddress, network, since, limit)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -164,7 +164,7 @@ func TestActivities_PollSolana(t *testing.T) {
 			mockStore := new(MockStore)
 			tt.setupMock(mockSolanaClient)
 
-			activities := NewActivities(mockStore, mockSolanaClient, nil, nil, slog.Default()) // nil for publisher and metrics
+			activities := NewActivities(mockStore, mockSolanaClient, mockSolanaClient, nil, nil, slog.Default()) // Use same mock for both networks, nil for publisher and metrics
 			result, err := activities.PollSolana(context.Background(), tt.input)
 
 			if tt.expectedError {
@@ -239,7 +239,7 @@ func TestActivities_GetExistingTransactionSignatures(t *testing.T) {
 			mockStore := new(MockStore)
 			tt.setupMock(mockStore)
 
-			activities := NewActivities(mockStore, nil, nil, nil, slog.Default()) // nil for solanaClient, publisher, and metrics
+			activities := NewActivities(mockStore, nil, nil, nil, nil, slog.Default()) // nil for both solanaClients, publisher, and metrics
 
 			result, err := activities.GetExistingTransactionSignatures(context.Background(), tt.input)
 
@@ -356,7 +356,7 @@ func TestActivities_WriteTransactions(t *testing.T) {
 			mockStore := new(MockStore)
 			tt.setupMock(mockStore)
 
-			activities := NewActivities(mockStore, nil, nil, nil, slog.Default()) // nil for solanaClient, publisher, and metrics
+			activities := NewActivities(mockStore, nil, nil, nil, nil, slog.Default()) // nil for both solanaClients, publisher, and metrics
 
 			result, err := activities.WriteTransactions(context.Background(), tt.input)
 
@@ -389,10 +389,10 @@ func TestActivities_WriteTransactions_SetsConfirmationStatus(t *testing.T) {
 		return p.Signature == "sig_failed" && p.ConfirmationStatus == "failed"
 	})).Return(&db.Transaction{Signature: "sig_failed"}, nil)
 
-	mockStore.On("UpdateWalletPollTime", mock.Anything, testWallet, mock.Anything).
+	mockStore.On("UpdateWalletPollTime", mock.Anything, testWallet, mock.Anything, mock.Anything).
 		Return(&db.Wallet{Address: testWallet}, nil)
 
-	activities := NewActivities(mockStore, nil, nil, nil, slog.Default()) // nil for solanaClient, publisher, and metrics
+	activities := NewActivities(mockStore, nil, nil, nil, nil, slog.Default()) // nil for both solanaClients, publisher, and metrics
 
 	input := WriteTransactionsInput{
 		WalletAddress: testWallet,
