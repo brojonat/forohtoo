@@ -413,6 +413,12 @@
             `);
         metaItems.push(`
                 <div class="meta-item">
+                    <div class="meta-label">Network</div>
+                    <div style="text-transform: uppercase; font-weight: 600; color: ${txn.network === 'mainnet' ? '#4caf50' : '#2196f3'}">${txn.network || 'mainnet'}</div>
+                </div>
+            `);
+        metaItems.push(`
+                <div class="meta-item">
                     <div class="meta-label">Slot</div>
                     <div>${txn.slot.toLocaleString()}</div>
                 </div>
