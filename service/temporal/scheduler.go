@@ -10,14 +10,15 @@ import (
 type Scheduler interface {
 	// CreateWalletSchedule creates a new schedule for polling a wallet.
 	// The schedule will trigger the PollWalletWorkflow on the given interval.
-	CreateWalletSchedule(ctx context.Context, address string, interval time.Duration) error
+	CreateWalletSchedule(ctx context.Context, address string, network string, interval time.Duration) error
 
 	// DeleteWalletSchedule deletes the schedule for a wallet.
 	// This stops the wallet from being polled.
-	DeleteWalletSchedule(ctx context.Context, address string) error
+	DeleteWalletSchedule(ctx context.Context, address string, network string) error
 }
 
-// scheduleID returns the Temporal schedule ID for a wallet address.
-func scheduleID(address string) string {
-	return "poll-wallet-" + address
+// scheduleID returns the Temporal schedule ID for a wallet address and network.
+// Network is included to allow same wallet on different networks.
+func scheduleID(address string, network string) string {
+	return "poll-wallet-" + network + "-" + address
 }

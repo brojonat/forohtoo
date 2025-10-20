@@ -160,7 +160,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "extra unexpected fields should be ignored",
-			body:           `{"address":"TestWa11et1111111111111111111111111111","poll_interval":"30s","malicious":"data","admin":true}`,
+			body:           `{"address":"TestWa11et1111111111111111111111111111","network":"mainnet","poll_interval":"30s","malicious":"data","admin":true}`,
 			expectedStatus: http.StatusCreated,
 			checkError:     nil,
 		},
@@ -185,11 +185,15 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 
 			// Cleanup if test created a wallet
 			if w.Code == http.StatusCreated {
-				// Extract address from response
+				// Extract address and network from response
 				var resp map[string]interface{}
 				_ = json.Unmarshal(w.Body.Bytes(), &resp)
 				if addr, ok := resp["address"].(string); ok {
-					store.DeleteWallet(context.Background(), addr)
+					network := "mainnet" // default network
+					if net, ok := resp["network"].(string); ok {
+						network = net
+					}
+					store.DeleteWallet(context.Background(), addr, network)
 				}
 			}
 		})
@@ -216,7 +220,7 @@ func TestRegisterWallet_ValidInput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body := `{"address":"` + tt.address + `","poll_interval":"` + tt.interval + `"}`
+			body := `{"address":"` + tt.address + `","network":"mainnet","poll_interval":"` + tt.interval + `"}`
 			req := httptest.NewRequest("POST", "/api/v1/wallets", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 
@@ -226,7 +230,7 @@ func TestRegisterWallet_ValidInput(t *testing.T) {
 			assert.Equal(t, http.StatusCreated, w.Code)
 
 			// Clean up
-			store.DeleteWallet(context.Background(), tt.address)
+			store.DeleteWallet(context.Background(), tt.address, "mainnet")
 		})
 	}
 }

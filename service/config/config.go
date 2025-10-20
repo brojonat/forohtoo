@@ -20,15 +20,13 @@ type Config struct {
 	// NATS configuration
 	NATSURL string
 
-	// Solana configuration
-	SolanaRPCURL string
-	// USDCMintAddress is the SPL token mint address for USDC on the current network.
-	// This is network-dependent:
-	// - Mainnet: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
-	// - Devnet: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
-	// - Testnet: CpMah17kQEL2wqyMKt3mZBdTnZbkbfx4nqmQMFDP5vwp
-	// Optional: only required if using --usdc-amount-equal CLI flag
-	USDCMintAddress string
+	// Solana configuration - Mainnet
+	SolanaMainnetRPCURL string
+	USDCMainnetMintAddress string
+
+	// Solana configuration - Devnet
+	SolanaDevnetRPCURL string
+	USDCDevnetMintAddress string
 
 	// Temporal configuration
 	TemporalHost      string
@@ -59,14 +57,37 @@ func Load() (*Config, error) {
 	// NATS configuration
 	cfg.NATSURL = getEnvOrDefault("NATS_URL", "nats://localhost:4222")
 
-	// Solana configuration
-	cfg.SolanaRPCURL = os.Getenv("SOLANA_RPC_URL")
-	if cfg.SolanaRPCURL == "" {
-		errs = append(errs, fmt.Errorf("SOLANA_RPC_URL is required"))
+	// Solana Mainnet configuration
+	cfg.SolanaMainnetRPCURL = os.Getenv("SOLANA_MAINNET_RPC_URL")
+	if cfg.SolanaMainnetRPCURL == "" {
+		errs = append(errs, fmt.Errorf("SOLANA_MAINNET_RPC_URL is required"))
 	}
 
-	// USDC mint address (optional, network-dependent)
-	cfg.USDCMintAddress = os.Getenv("USDC_MINT_ADDRESS")
+	cfg.USDCMainnetMintAddress = os.Getenv("USDC_MAINNET_MINT_ADDRESS")
+	if cfg.USDCMainnetMintAddress == "" {
+		errs = append(errs, fmt.Errorf("USDC_MAINNET_MINT_ADDRESS is required"))
+	}
+
+	// Solana Devnet configuration
+	cfg.SolanaDevnetRPCURL = os.Getenv("SOLANA_DEVNET_RPC_URL")
+	if cfg.SolanaDevnetRPCURL == "" {
+		errs = append(errs, fmt.Errorf("SOLANA_DEVNET_RPC_URL is required"))
+	}
+
+	cfg.USDCDevnetMintAddress = os.Getenv("USDC_DEVNET_MINT_ADDRESS")
+	if cfg.USDCDevnetMintAddress == "" {
+		errs = append(errs, fmt.Errorf("USDC_DEVNET_MINT_ADDRESS is required"))
+	}
+
+	// Validate RPC URLs are different
+	if cfg.SolanaMainnetRPCURL == cfg.SolanaDevnetRPCURL {
+		errs = append(errs, fmt.Errorf("SOLANA_MAINNET_RPC_URL and SOLANA_DEVNET_RPC_URL must be different"))
+	}
+
+	// Validate USDC mint addresses are different
+	if cfg.USDCMainnetMintAddress == cfg.USDCDevnetMintAddress {
+		errs = append(errs, fmt.Errorf("USDC_MAINNET_MINT_ADDRESS and USDC_DEVNET_MINT_ADDRESS must be different"))
+	}
 
 	// Temporal configuration
 	cfg.TemporalHost = getEnvOrDefault("TEMPORAL_HOST", "localhost:7233")
@@ -121,8 +142,20 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf("DatabaseURL is required"))
 	}
 
-	if c.SolanaRPCURL == "" {
-		errs = append(errs, fmt.Errorf("SolanaRPCURL is required"))
+	if c.SolanaMainnetRPCURL == "" {
+		errs = append(errs, fmt.Errorf("SolanaMainnetRPCURL is required"))
+	}
+
+	if c.SolanaDevnetRPCURL == "" {
+		errs = append(errs, fmt.Errorf("SolanaDevnetRPCURL is required"))
+	}
+
+	if c.USDCMainnetMintAddress == "" {
+		errs = append(errs, fmt.Errorf("USDCMainnetMintAddress is required"))
+	}
+
+	if c.USDCDevnetMintAddress == "" {
+		errs = append(errs, fmt.Errorf("USDCDevnetMintAddress is required"))
 	}
 
 	if c.TemporalHost == "" {

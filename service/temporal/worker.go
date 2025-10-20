@@ -17,14 +17,16 @@ type WorkerConfig struct {
 	TaskQueue         string
 
 	// Solana configuration
-	USDCMintAddress string // SPL token mint address for USDC (network-specific)
+	USDCMainnetMintAddress string // SPL token mint address for USDC on mainnet
+	USDCDevnetMintAddress  string // SPL token mint address for USDC on devnet
 
 	// Dependencies
-	Store        StoreInterface
-	SolanaClient SolanaClientInterface
-	Publisher    PublisherInterface
-	Metrics      *metrics.Metrics // Optional: if nil, no metrics will be recorded
-	Logger       *slog.Logger
+	Store         StoreInterface
+	MainnetClient SolanaClientInterface
+	DevnetClient  SolanaClientInterface
+	Publisher     PublisherInterface
+	Metrics       *metrics.Metrics // Optional: if nil, no metrics will be recorded
+	Logger        *slog.Logger
 }
 
 // Worker wraps a Temporal worker and provides lifecycle management.
@@ -43,12 +45,20 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 
 	logger := config.Logger.With("component", "temporal_worker")
 
-	// Set the USDC mint address for workflow use
-	USDCMintAddress = config.USDCMintAddress
-	if USDCMintAddress != "" {
-		logger.Info("USDC ATA polling enabled", "usdc_mint", USDCMintAddress)
+	// Set the USDC mint addresses for workflow use
+	USDCMainnetMintAddress = config.USDCMainnetMintAddress
+	USDCDevnetMintAddress = config.USDCDevnetMintAddress
+
+	if USDCMainnetMintAddress != "" {
+		logger.Info("USDC ATA polling enabled for mainnet", "usdc_mint", USDCMainnetMintAddress)
 	} else {
-		logger.Info("USDC ATA polling disabled (no USDC_MINT_ADDRESS configured)")
+		logger.Warn("USDC ATA polling disabled for mainnet (no USDC_MAINNET_MINT_ADDRESS configured)")
+	}
+
+	if USDCDevnetMintAddress != "" {
+		logger.Info("USDC ATA polling enabled for devnet", "usdc_mint", USDCDevnetMintAddress)
+	} else {
+		logger.Warn("USDC ATA polling disabled for devnet (no USDC_DEVNET_MINT_ADDRESS configured)")
 	}
 
 	logger.Info("creating temporal worker",
@@ -80,7 +90,8 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 	// Create activities instance with dependencies
 	activities := NewActivities(
 		config.Store,
-		config.SolanaClient,
+		config.MainnetClient,
+		config.DevnetClient,
 		config.Publisher,
 		config.Metrics,
 		logger,

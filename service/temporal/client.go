@@ -47,11 +47,12 @@ func NewClient(host, namespace, taskQueue string, logger *slog.Logger) (*Client,
 }
 
 // CreateWalletSchedule creates a new Temporal schedule for polling a wallet.
-func (c *Client) CreateWalletSchedule(ctx context.Context, address string, interval time.Duration) error {
-	id := scheduleID(address)
+func (c *Client) CreateWalletSchedule(ctx context.Context, address string, network string, interval time.Duration) error {
+	id := scheduleID(address, network)
 
 	c.logger.Debug("creating wallet schedule",
 		"address", address,
+		"network", network,
 		"schedule_id", id,
 		"interval", interval,
 	)
@@ -67,10 +68,10 @@ func (c *Client) CreateWalletSchedule(ctx context.Context, address string, inter
 
 	// Create workflow action - this will execute the PollWalletWorkflow
 	workflowAction := client.ScheduleWorkflowAction{
-		ID:        fmt.Sprintf("poll-wallet-%s", address),
+		ID:        fmt.Sprintf("poll-wallet-%s-%s", network, address),
 		Workflow:  "PollWalletWorkflow",
 		TaskQueue: c.taskQueue,
-		Args:      []interface{}{PollWalletInput{Address: address}},
+		Args:      []interface{}{PollWalletInput{Address: address, Network: network}},
 	}
 
 	// Create the schedule
@@ -80,6 +81,7 @@ func (c *Client) CreateWalletSchedule(ctx context.Context, address string, inter
 		Action: &workflowAction,
 		Memo: map[string]interface{}{
 			"wallet_address": address,
+			"network":        network,
 			"created_by":     "forohtoo",
 		},
 	})
@@ -103,11 +105,12 @@ func (c *Client) CreateWalletSchedule(ctx context.Context, address string, inter
 }
 
 // DeleteWalletSchedule deletes the Temporal schedule for a wallet.
-func (c *Client) DeleteWalletSchedule(ctx context.Context, address string) error {
-	id := scheduleID(address)
+func (c *Client) DeleteWalletSchedule(ctx context.Context, address string, network string) error {
+	id := scheduleID(address, network)
 
 	c.logger.Debug("deleting wallet schedule",
 		"address", address,
+		"network", network,
 		"schedule_id", id,
 	)
 

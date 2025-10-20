@@ -23,7 +23,7 @@ func NewMockScheduler() *MockScheduler {
 }
 
 // CreateWalletSchedule records that a schedule was created.
-func (m *MockScheduler) CreateWalletSchedule(ctx context.Context, address string, interval time.Duration) error {
+func (m *MockScheduler) CreateWalletSchedule(ctx context.Context, address string, network string, interval time.Duration) error {
 	if m.createErr != nil {
 		return m.createErr
 	}
@@ -31,13 +31,13 @@ func (m *MockScheduler) CreateWalletSchedule(ctx context.Context, address string
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	id := scheduleID(address)
+	id := scheduleID(address, network)
 	m.schedules[id] = interval
 	return nil
 }
 
 // DeleteWalletSchedule records that a schedule was deleted.
-func (m *MockScheduler) DeleteWalletSchedule(ctx context.Context, address string) error {
+func (m *MockScheduler) DeleteWalletSchedule(ctx context.Context, address string, network string) error {
 	if m.deleteErr != nil {
 		return m.deleteErr
 	}
@@ -45,7 +45,7 @@ func (m *MockScheduler) DeleteWalletSchedule(ctx context.Context, address string
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	id := scheduleID(address)
+	id := scheduleID(address, network)
 	if _, exists := m.schedules[id]; !exists {
 		return fmt.Errorf("schedule %q not found", id)
 	}
@@ -65,21 +65,21 @@ func (m *MockScheduler) SetDeleteError(err error) {
 }
 
 // ScheduleExists checks if a schedule exists for a wallet.
-func (m *MockScheduler) ScheduleExists(address string) bool {
+func (m *MockScheduler) ScheduleExists(address string, network string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	id := scheduleID(address)
+	id := scheduleID(address, network)
 	_, exists := m.schedules[id]
 	return exists
 }
 
 // GetScheduleInterval returns the interval for a wallet's schedule.
-func (m *MockScheduler) GetScheduleInterval(address string) (time.Duration, bool) {
+func (m *MockScheduler) GetScheduleInterval(address string, network string) (time.Duration, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	id := scheduleID(address)
+	id := scheduleID(address, network)
 	interval, exists := m.schedules[id]
 	return interval, exists
 }

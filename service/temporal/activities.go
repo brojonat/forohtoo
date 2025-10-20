@@ -16,6 +16,7 @@ import (
 // PollWalletInput contains the input parameters for polling a wallet.
 type PollWalletInput struct {
 	Address string `json:"address"`
+	Network string `json:"network"` // "mainnet" or "devnet"
 }
 
 // PollWalletResult contains the result of polling a wallet.
@@ -32,6 +33,7 @@ type PollWalletResult struct {
 // PollSolanaInput contains parameters for the PollSolana activity.
 type PollSolanaInput struct {
 	Address            string   `json:"address"`
+	Network            string   `json:"network"` // "mainnet" or "devnet"
 	LastSignature      *string  `json:"last_signature,omitempty"`
 	Limit              int      `json:"limit"`
 	ExistingSignatures []string `json:"existing_signatures"`
@@ -47,6 +49,7 @@ type PollSolanaResult struct {
 // WriteTransactionsInput contains parameters for the WriteTransactions activity.
 type WriteTransactionsInput struct {
 	WalletAddress string                `json:"wallet_address"`
+	Network       string                `json:"network"`
 	Transactions  []*solana.Transaction `json:"transactions"`
 }
 
@@ -59,6 +62,7 @@ type WriteTransactionsResult struct {
 // GetExistingTransactionSignaturesInput contains parameters for the GetExistingTransactionSignatures activity.
 type GetExistingTransactionSignaturesInput struct {
 	WalletAddress string     `json:"wallet_address"`
+	Network       string     `json:"network"` // "mainnet" or "devnet"
 	Since         *time.Time `json:"since,omitempty"`
 }
 
@@ -71,10 +75,10 @@ type GetExistingTransactionSignaturesResult struct {
 // This allows for easy mocking in tests.
 type StoreInterface interface {
 	CreateTransaction(context.Context, db.CreateTransactionParams) (*db.Transaction, error)
-	UpdateWalletPollTime(context.Context, string, time.Time) (*db.Wallet, error)
-	GetTransaction(context.Context, string) (*db.Transaction, error)
-	GetWallet(context.Context, string) (*db.Wallet, error)
-	GetTransactionSignaturesByWallet(context.Context, string, *time.Time, int32) ([]string, error)
+	UpdateWalletPollTime(context.Context, string, string, time.Time) (*db.Wallet, error)
+	GetTransaction(context.Context, string, string) (*db.Transaction, error)
+	GetWallet(context.Context, string, string) (*db.Wallet, error)
+	GetTransactionSignaturesByWallet(context.Context, string, string, *time.Time, int32) ([]string, error)
 }
 
 // SolanaClientInterface defines the Solana operations needed by activities.
@@ -93,18 +97,20 @@ type PublisherInterface interface {
 // Activities holds the dependencies needed by Temporal activities.
 // Following go-kit pattern, all dependencies are explicit.
 type Activities struct {
-	store        StoreInterface
-	solanaClient SolanaClientInterface
-	publisher    PublisherInterface
-	metrics      *metrics.Metrics
-	logger       *slog.Logger
+	store              StoreInterface
+	mainnetClient      SolanaClientInterface
+	devnetClient       SolanaClientInterface
+	publisher          PublisherInterface
+	metrics            *metrics.Metrics
+	logger             *slog.Logger
 }
 
 // NewActivities creates a new Activities instance with explicit dependencies.
 // If metrics is nil, no metrics will be recorded.
 func NewActivities(
 	store StoreInterface,
-	solanaClient SolanaClientInterface,
+	mainnetClient SolanaClientInterface,
+	devnetClient SolanaClientInterface,
 	publisher PublisherInterface,
 	m *metrics.Metrics,
 	logger *slog.Logger,
@@ -113,11 +119,12 @@ func NewActivities(
 		logger = slog.Default()
 	}
 	return &Activities{
-		store:        store,
-		solanaClient: solanaClient,
-		publisher:    publisher,
-		metrics:      m,
-		logger:       logger,
+		store:         store,
+		mainnetClient: mainnetClient,
+		devnetClient:  devnetClient,
+		publisher:     publisher,
+		metrics:       m,
+		logger:        logger,
 	}
 }
 
@@ -170,15 +177,27 @@ func (a *Activities) PollSolana(ctx context.Context, input PollSolanaInput) (*Po
 		limit = 100
 	}
 
+	// Select the appropriate Solana client based on network
+	var solanaClient SolanaClientInterface
+	switch input.Network {
+	case "mainnet":
+		solanaClient = a.mainnetClient
+	case "devnet":
+		solanaClient = a.devnetClient
+	default:
+		return nil, fmt.Errorf("invalid network: %s (must be mainnet or devnet)", input.Network)
+	}
+
 	// Fetch transactions from Solana
 	params := solana.GetTransactionsSinceParams{
 		Wallet:             walletPubkey,
+		Network:            input.Network,
 		LastSignature:      lastSig,
 		Limit:              limit,
 		ExistingSignatures: input.ExistingSignatures,
 	}
 
-	transactions, err := a.solanaClient.GetTransactionsSince(ctx, params)
+	transactions, err := solanaClient.GetTransactionsSince(ctx, params)
 	if err != nil {
 		a.logger.ErrorContext(ctx, "failed to poll solana",
 			"address", input.Address,
@@ -236,7 +255,7 @@ func (a *Activities) GetExistingTransactionSignatures(ctx context.Context, input
 
 	// Limit to 1000 most recent signatures to prevent unbounded growth
 	const maxSignatures = 1000
-	signatures, err := a.store.GetTransactionSignaturesByWallet(ctx, input.WalletAddress, input.Since, maxSignatures)
+	signatures, err := a.store.GetTransactionSignaturesByWallet(ctx, input.WalletAddress, input.Network, input.Since, maxSignatures)
 	if err != nil {
 		a.logger.ErrorContext(ctx, "failed to get existing transaction signatures",
 			"wallet_address", input.WalletAddress,
@@ -283,6 +302,7 @@ func (a *Activities) WriteTransactions(ctx context.Context, input WriteTransacti
 		params := db.CreateTransactionParams{
 			Signature:     txn.Signature,
 			WalletAddress: input.WalletAddress,
+			Network:       txn.Network,
 			Slot:          int64(txn.Slot),
 			BlockTime:     txn.BlockTime,
 		}
@@ -336,10 +356,11 @@ func (a *Activities) WriteTransactions(ctx context.Context, input WriteTransacti
 	}
 
 	// Update wallet's last poll time
-	_, err := a.store.UpdateWalletPollTime(ctx, input.WalletAddress, time.Now())
+	_, err := a.store.UpdateWalletPollTime(ctx, input.WalletAddress, input.Network, time.Now())
 	if err != nil {
 		a.logger.WarnContext(ctx, "failed to update wallet last poll time",
 			"wallet", input.WalletAddress,
+			"network", input.Network,
 			"error", err,
 		)
 		// Don't fail the activity for this - transactions are written

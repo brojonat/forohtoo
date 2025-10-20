@@ -17,6 +17,7 @@ import (
 // Wallet represents a registered wallet that the server is monitoring.
 type Wallet struct {
 	Address      string        `json:"address"`
+	Network      string        `json:"network"` // "mainnet" or "devnet"
 	PollInterval time.Duration `json:"poll_interval"`
 	LastPollTime *time.Time    `json:"last_poll_time,omitempty"`
 	Status       string        `json:"status"` // active, paused, error
@@ -47,9 +48,10 @@ func NewClient(baseURL string, httpClient *http.Client, logger *slog.Logger) *Cl
 }
 
 // Register tells the server to start monitoring a wallet for transactions.
-func (c *Client) Register(ctx context.Context, address string, pollInterval time.Duration) error {
+func (c *Client) Register(ctx context.Context, address string, network string, pollInterval time.Duration) error {
 	reqBody := map[string]interface{}{
 		"address":       address,
+		"network":       network,
 		"poll_interval": pollInterval.String(),
 	}
 
@@ -79,8 +81,8 @@ func (c *Client) Register(ctx context.Context, address string, pollInterval time
 }
 
 // Unregister tells the server to stop monitoring a wallet.
-func (c *Client) Unregister(ctx context.Context, address string) error {
-	u := fmt.Sprintf("%s/api/v1/wallets/%s", c.baseURL, url.PathEscape(address))
+func (c *Client) Unregister(ctx context.Context, address string, network string) error {
+	u := fmt.Sprintf("%s/api/v1/wallets/%s?network=%s", c.baseURL, url.PathEscape(address), url.QueryEscape(network))
 	req, err := http.NewRequestWithContext(ctx, "DELETE", u, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -101,8 +103,8 @@ func (c *Client) Unregister(ctx context.Context, address string) error {
 }
 
 // Get retrieves the registration details for a specific wallet.
-func (c *Client) Get(ctx context.Context, address string) (*Wallet, error) {
-	u := fmt.Sprintf("%s/api/v1/wallets/%s", c.baseURL, url.PathEscape(address))
+func (c *Client) Get(ctx context.Context, address string, network string) (*Wallet, error) {
+	u := fmt.Sprintf("%s/api/v1/wallets/%s?network=%s", c.baseURL, url.PathEscape(address), url.QueryEscape(network))
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -167,6 +169,7 @@ func (c *Client) List(ctx context.Context) ([]*Wallet, error) {
 // The server returns poll_interval as a string (e.g. "30s").
 type walletResponse struct {
 	Address      string     `json:"address"`
+	Network      string     `json:"network"`
 	PollInterval string     `json:"poll_interval"`
 	LastPollTime *time.Time `json:"last_poll_time,omitempty"`
 	Status       string     `json:"status"`
@@ -183,6 +186,7 @@ func responseToWallet(resp *walletResponse) (*Wallet, error) {
 
 	return &Wallet{
 		Address:      resp.Address,
+		Network:      resp.Network,
 		PollInterval: pollInterval,
 		LastPollTime: resp.LastPollTime,
 		Status:       resp.Status,
@@ -219,9 +223,9 @@ type Transaction struct {
 //	    // Check if memo contains expected workflow ID
 //	    return strings.Contains(txn.Memo, "payment-workflow-123")
 //	})
-func (c *Client) Await(ctx context.Context, address string, matcher func(*Transaction) bool) (*Transaction, error) {
+func (c *Client) Await(ctx context.Context, address string, network string, matcher func(*Transaction) bool) (*Transaction, error) {
 	// Build SSE stream URL
-	u := fmt.Sprintf("%s/api/v1/stream/transactions/%s", c.baseURL, url.PathEscape(address))
+	u := fmt.Sprintf("%s/api/v1/stream/transactions/%s?network=%s", c.baseURL, url.PathEscape(address), url.QueryEscape(network))
 
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
@@ -335,10 +339,11 @@ func (c *Client) handleSSEEvent(eventType, data string, matcher func(*Transactio
 }
 
 // ListTransactions retrieves transactions for a specific wallet.
-func (c *Client) ListTransactions(ctx context.Context, walletAddress string, limit, offset int) ([]*Transaction, error) {
-	u := fmt.Sprintf("%s/api/v1/transactions?wallet_address=%s&limit=%d&offset=%d",
+func (c *Client) ListTransactions(ctx context.Context, walletAddress string, network string, limit, offset int) ([]*Transaction, error) {
+	u := fmt.Sprintf("%s/api/v1/transactions?wallet_address=%s&network=%s&limit=%d&offset=%d",
 		c.baseURL,
 		url.QueryEscape(walletAddress),
+		url.QueryEscape(network),
 		limit,
 		offset,
 	)

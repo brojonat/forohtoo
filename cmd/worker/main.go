@@ -80,13 +80,23 @@ func main() {
 		}
 	}()
 
-	// Extract endpoint identifier from Solana RPC URL for metrics labeling
-	endpoint := extractEndpointFromURL(cfg.SolanaRPCURL)
+	// Initialize Mainnet Solana RPC client
+	mainnetEndpoint := extractEndpointFromURL(cfg.SolanaMainnetRPCURL)
+	mainnetRPC := solana.NewRPCClient(cfg.SolanaMainnetRPCURL)
+	mainnetClient := solana.NewClient(mainnetRPC, mainnetEndpoint, metricsCollector, logger)
+	logger.Info("initialized mainnet solana RPC client",
+		"url", cfg.SolanaMainnetRPCURL,
+		"endpoint", mainnetEndpoint,
+	)
 
-	// Initialize Solana RPC client with metrics
-	solanaRPC := solana.NewRPCClient(cfg.SolanaRPCURL)
-	solanaClient := solana.NewClient(solanaRPC, endpoint, metricsCollector, logger)
-	logger.Info("initialized solana RPC client", "url", cfg.SolanaRPCURL, "endpoint", endpoint)
+	// Initialize Devnet Solana RPC client
+	devnetEndpoint := extractEndpointFromURL(cfg.SolanaDevnetRPCURL)
+	devnetRPC := solana.NewRPCClient(cfg.SolanaDevnetRPCURL)
+	devnetClient := solana.NewClient(devnetRPC, devnetEndpoint, metricsCollector, logger)
+	logger.Info("initialized devnet solana RPC client",
+		"url", cfg.SolanaDevnetRPCURL,
+		"endpoint", devnetEndpoint,
+	)
 
 	// Initialize NATS publisher
 	natsPublisher, err := natspkg.NewPublisher(cfg.NATSURL, logger)
@@ -99,15 +109,17 @@ func main() {
 
 	// Initialize Temporal worker
 	workerConfig := temporal.WorkerConfig{
-		TemporalHost:      cfg.TemporalHost,
-		TemporalNamespace: cfg.TemporalNamespace,
-		TaskQueue:         cfg.TemporalTaskQueue,
-		USDCMintAddress:   cfg.USDCMintAddress, // Network-specific USDC mint for ATA polling
-		Store:             store,
-		SolanaClient:      solanaClient,
-		Publisher:         natsPublisher,
-		Metrics:           metricsCollector,
-		Logger:            logger,
+		TemporalHost:           cfg.TemporalHost,
+		TemporalNamespace:      cfg.TemporalNamespace,
+		TaskQueue:              cfg.TemporalTaskQueue,
+		USDCMainnetMintAddress: cfg.USDCMainnetMintAddress,
+		USDCDevnetMintAddress:  cfg.USDCDevnetMintAddress,
+		Store:                  store,
+		MainnetClient:          mainnetClient,
+		DevnetClient:           devnetClient,
+		Publisher:              natsPublisher,
+		Metrics:                metricsCollector,
+		Logger:                 logger,
 	}
 
 	worker, err := temporal.NewWorker(workerConfig)
@@ -117,7 +129,8 @@ func main() {
 	}
 
 	logger.Info("temporal worker initialized, all dependencies ready",
-		"solana_rpc", cfg.SolanaRPCURL,
+		"mainnet_rpc", cfg.SolanaMainnetRPCURL,
+		"devnet_rpc", cfg.SolanaDevnetRPCURL,
 		"temporal_host", cfg.TemporalHost,
 		"temporal_namespace", cfg.TemporalNamespace,
 		"task_queue", cfg.TemporalTaskQueue,

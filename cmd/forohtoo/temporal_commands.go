@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -490,27 +491,32 @@ func reconcileCommand() *cli.Command {
 			var orphanedSchedules []string
 
 			// Find wallets without schedules
+			type WalletKey struct {
+				Address string
+				Network string
+			}
 			for _, wallet := range wallets {
 				if wallet.Status != "active" {
 					continue // Skip non-active wallets
 				}
-				scheduleID := "poll-wallet-" + wallet.Address
+				scheduleID := "poll-wallet-" + wallet.Network + "-" + wallet.Address
 				if !schedules[scheduleID] {
-					missingSchedules = append(missingSchedules, wallet.Address)
+					missingSchedules = append(missingSchedules, wallet.Address+":"+wallet.Network)
 				}
 			}
 
 			// Find schedules without wallets
 			walletsMap := make(map[string]bool)
 			for _, wallet := range wallets {
-				walletsMap[wallet.Address] = true
+				walletsMap[wallet.Network+":"+wallet.Address] = true
 			}
 
 			for scheduleID := range schedules {
-				// Extract wallet address from schedule ID
+				// Extract wallet address and network from schedule ID (format: poll-wallet-{network}-{address})
 				if len(scheduleID) > 12 && scheduleID[:12] == "poll-wallet-" {
+					// Old format support: poll-wallet-{address}
 					address := scheduleID[12:]
-					if !walletsMap[address] {
+					if !walletsMap["mainnet:"+address] && !walletsMap["devnet:"+address] {
 						orphanedSchedules = append(orphanedSchedules, scheduleID)
 					}
 				}
@@ -545,15 +551,24 @@ func reconcileCommand() *cli.Command {
 				fmt.Printf("\nFixing inconsistencies...\n")
 
 				// Create missing schedules
-				for _, addr := range missingSchedules {
+				for _, addrNet := range missingSchedules {
+					// Parse address:network format
+					parts := strings.Split(addrNet, ":")
+					if len(parts) != 2 {
+						fmt.Printf("  ✗ Invalid wallet key format: %s\n", addrNet)
+						continue
+					}
+					addr := parts[0]
+					network := parts[1]
+
 					// Get wallet to get poll interval
-					wallet, err := store.GetWallet(ctx, addr)
+					wallet, err := store.GetWallet(ctx, addr, network)
 					if err != nil {
-						fmt.Printf("  ✗ Failed to get wallet %s: %v\n", addr, err)
+						fmt.Printf("  ✗ Failed to get wallet %s on %s: %v\n", addr, network, err)
 						continue
 					}
 
-					scheduleID := "poll-wallet-" + addr
+					scheduleID := "poll-wallet-" + network + "-" + addr
 					scheduleSpec := client.ScheduleSpec{
 						Intervals: []client.ScheduleIntervalSpec{
 							{

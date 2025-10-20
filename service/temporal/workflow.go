@@ -12,19 +12,31 @@ import (
 
 var a *Activities // for type-safe activity invocation
 
-// USDCMintAddress is the SPL token mint address for USDC.
+// USDCMainnetMintAddress is the SPL token mint address for USDC on mainnet.
 // This must be set before the worker starts, typically during initialization.
-// Set to empty string to disable USDC ATA polling.
-var USDCMintAddress string
+var USDCMainnetMintAddress string
+
+// USDCDevnetMintAddress is the SPL token mint address for USDC on devnet.
+// This must be set before the worker starts, typically during initialization.
+var USDCDevnetMintAddress string
 
 // getUSDCAssociatedTokenAccount calculates the associated token account for USDC.
-// Returns empty string if the wallet address is invalid or if USDCMintAddress is not set.
-func getUSDCAssociatedTokenAccount(walletAddress string) string {
-	if USDCMintAddress == "" {
+// Returns empty string if the wallet address is invalid or if the network's USDC mint address is not set.
+func getUSDCAssociatedTokenAccount(walletAddress string, network string) string {
+	// Select the correct USDC mint based on network
+	var usdcMint string
+	switch network {
+	case "mainnet":
+		usdcMint = USDCMainnetMintAddress
+	case "devnet":
+		usdcMint = USDCDevnetMintAddress
+	default:
 		return ""
 	}
 
-	usdcMint := USDCMintAddress
+	if usdcMint == "" {
+		return ""
+	}
 
 	wallet, err := solanago.PublicKeyFromBase58(walletAddress)
 	if err != nil {
@@ -82,7 +94,7 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 	var existingSigsResult *GetExistingTransactionSignaturesResult
 	// Get ALL existing signatures (no time filter) to ensure proper deduplication
 	// This is safe because we're only fetching signatures, not full transaction data
-	err := workflow.ExecuteActivity(ctx, a.GetExistingTransactionSignatures, GetExistingTransactionSignaturesInput{WalletAddress: input.Address, Since: nil}).Get(ctx, &existingSigsResult)
+	err := workflow.ExecuteActivity(ctx, a.GetExistingTransactionSignatures, GetExistingTransactionSignaturesInput{WalletAddress: input.Address, Network: input.Network, Since: nil}).Get(ctx, &existingSigsResult)
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to get existing transaction signatures: %v", err)
 		result.Error = &errMsg
@@ -100,6 +112,7 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 	// At 600ms per transaction, 20 txns = ~12 seconds fetch time
 	mainWalletInput := PollSolanaInput{
 		Address:            input.Address,
+		Network:            input.Network,
 		LastSignature:      lastSignature,
 		Limit:              20,
 		ExistingSignatures: existingSigsResult.Signatures,
@@ -120,12 +133,13 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 	)
 
 	// Poll USDC associated token account
-	usdcATA := getUSDCAssociatedTokenAccount(input.Address)
+	usdcATA := getUSDCAssociatedTokenAccount(input.Address, input.Network)
 	allTransactions := mainWalletResult.Transactions
 
 	if usdcATA != "" {
 		usdcATAInput := PollSolanaInput{
 			Address:            usdcATA,
+			Network:            input.Network,
 			LastSignature:      lastSignature,
 			Limit:              20, // Same limit as main wallet for public RPC
 			ExistingSignatures: existingSigsResult.Signatures,
@@ -215,6 +229,7 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 
 	writeInput := WriteTransactionsInput{
 		WalletAddress: input.Address,
+		Network:       input.Network,
 		Transactions:  pollResult.Transactions,
 	}
 

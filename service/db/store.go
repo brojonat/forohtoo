@@ -29,6 +29,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 type Transaction struct {
 	Signature          string
 	WalletAddress      string
+	Network            string  // "mainnet" or "devnet"
 	Slot               int64
 	BlockTime          time.Time
 	Amount             int64
@@ -43,6 +44,7 @@ type Transaction struct {
 type CreateTransactionParams struct {
 	Signature          string
 	WalletAddress      string
+	Network            string
 	Slot               int64
 	BlockTime          time.Time
 	Amount             int64
@@ -55,6 +57,7 @@ type CreateTransactionParams struct {
 // ListTransactionsByWalletParams contains pagination parameters.
 type ListTransactionsByWalletParams struct {
 	WalletAddress string
+	Network       string
 	Limit         int32
 	Offset        int32
 }
@@ -62,6 +65,7 @@ type ListTransactionsByWalletParams struct {
 // ListTransactionsByWalletAndTimeRangeParams contains time range query parameters.
 type ListTransactionsByWalletAndTimeRangeParams struct {
 	WalletAddress string
+	Network       string
 	StartTime     time.Time
 	EndTime       time.Time
 }
@@ -72,6 +76,7 @@ func (s *Store) CreateTransaction(ctx context.Context, params CreateTransactionP
 	sqlcParams := dbgen.CreateTransactionParams{
 		Signature:          params.Signature,
 		WalletAddress:      params.WalletAddress,
+		Network:            params.Network,
 		Slot:               params.Slot,
 		BlockTime:          pgtype.Timestamptz{Time: params.BlockTime, Valid: true},
 		Amount:             params.Amount,
@@ -89,9 +94,13 @@ func (s *Store) CreateTransaction(ctx context.Context, params CreateTransactionP
 	return dbTransactionToDomain(&result), nil
 }
 
-// GetTransaction retrieves a transaction by its signature.
-func (s *Store) GetTransaction(ctx context.Context, signature string) (*Transaction, error) {
-	result, err := s.q.GetTransaction(ctx, signature)
+// GetTransaction retrieves a transaction by its signature and network.
+func (s *Store) GetTransaction(ctx context.Context, signature string, network string) (*Transaction, error) {
+	params := dbgen.GetTransactionParams{
+		Signature: signature,
+		Network:   network,
+	}
+	result, err := s.q.GetTransaction(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -101,13 +110,14 @@ func (s *Store) GetTransaction(ctx context.Context, signature string) (*Transact
 
 // GetTransactionSignaturesByWallet retrieves transaction signatures for a wallet.
 // Limit controls the maximum number of signatures returned (ordered by most recent first).
-func (s *Store) GetTransactionSignaturesByWallet(ctx context.Context, walletAddress string, since *time.Time, limit int32) ([]string, error) {
+func (s *Store) GetTransactionSignaturesByWallet(ctx context.Context, walletAddress string, network string, since *time.Time, limit int32) ([]string, error) {
 	var sinceVal pgtype.Timestamptz
 	if since != nil {
 		sinceVal = pgtype.Timestamptz{Time: *since, Valid: true}
 	}
 	arg := dbgen.GetTransactionSignaturesByWalletParams{
 		WalletAddress: walletAddress,
+		Network:       network,
 		Since:         sinceVal,
 		LimitCount:    limit,
 	}
@@ -118,6 +128,7 @@ func (s *Store) GetTransactionSignaturesByWallet(ctx context.Context, walletAddr
 func (s *Store) ListTransactionsByWallet(ctx context.Context, params ListTransactionsByWalletParams) ([]*Transaction, error) {
 	sqlcParams := dbgen.ListTransactionsByWalletParams{
 		WalletAddress: params.WalletAddress,
+		Network:       params.Network,
 		Limit:         params.Limit,
 		Offset:        params.Offset,
 	}
@@ -139,6 +150,7 @@ func (s *Store) ListTransactionsByWallet(ctx context.Context, params ListTransac
 func (s *Store) ListTransactionsByWalletAndTimeRange(ctx context.Context, params ListTransactionsByWalletAndTimeRangeParams) ([]*Transaction, error) {
 	sqlcParams := dbgen.ListTransactionsByWalletAndTimeRangeParams{
 		WalletAddress: params.WalletAddress,
+		Network:       params.Network,
 		BlockTime:     pgtype.Timestamptz{Time: params.StartTime, Valid: true},
 		BlockTime_2:   pgtype.Timestamptz{Time: params.EndTime, Valid: true},
 	}
@@ -157,13 +169,21 @@ func (s *Store) ListTransactionsByWalletAndTimeRange(ctx context.Context, params
 }
 
 // CountTransactionsByWallet counts transactions for a wallet.
-func (s *Store) CountTransactionsByWallet(ctx context.Context, walletAddress string) (int64, error) {
-	return s.q.CountTransactionsByWallet(ctx, walletAddress)
+func (s *Store) CountTransactionsByWallet(ctx context.Context, walletAddress string, network string) (int64, error) {
+	params := dbgen.CountTransactionsByWalletParams{
+		WalletAddress: walletAddress,
+		Network:       network,
+	}
+	return s.q.CountTransactionsByWallet(ctx, params)
 }
 
 // GetLatestTransactionByWallet retrieves the most recent transaction for a wallet.
-func (s *Store) GetLatestTransactionByWallet(ctx context.Context, walletAddress string) (*Transaction, error) {
-	result, err := s.q.GetLatestTransactionByWallet(ctx, walletAddress)
+func (s *Store) GetLatestTransactionByWallet(ctx context.Context, walletAddress string, network string) (*Transaction, error) {
+	params := dbgen.GetLatestTransactionByWalletParams{
+		WalletAddress: walletAddress,
+		Network:       network,
+	}
+	result, err := s.q.GetLatestTransactionByWallet(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -172,9 +192,10 @@ func (s *Store) GetLatestTransactionByWallet(ctx context.Context, walletAddress 
 }
 
 // GetTransactionsSince retrieves transactions for a wallet since a given time.
-func (s *Store) GetTransactionsSince(ctx context.Context, walletAddress string, since time.Time) ([]*Transaction, error) {
+func (s *Store) GetTransactionsSince(ctx context.Context, walletAddress string, network string, since time.Time) ([]*Transaction, error) {
 	params := dbgen.GetTransactionsSinceParams{
 		WalletAddress: walletAddress,
+		Network:       network,
 		BlockTime:     pgtype.Timestamptz{Time: since, Valid: true},
 	}
 
@@ -216,6 +237,7 @@ func (s *Store) ListTransactionsByTimeRange(ctx context.Context, start time.Time
 // Wallet represents a registered wallet that the server monitors.
 type Wallet struct {
 	Address      string
+	Network      string // "mainnet" or "devnet"
 	PollInterval time.Duration
 	LastPollTime *time.Time
 	Status       string
@@ -226,6 +248,7 @@ type Wallet struct {
 // CreateWalletParams contains the parameters for registering a wallet.
 type CreateWalletParams struct {
 	Address      string
+	Network      string
 	PollInterval time.Duration
 	Status       string
 }
@@ -234,6 +257,7 @@ type CreateWalletParams struct {
 func (s *Store) CreateWallet(ctx context.Context, params CreateWalletParams) (*Wallet, error) {
 	sqlcParams := dbgen.CreateWalletParams{
 		Address:      params.Address,
+		Network:      params.Network,
 		PollInterval: pgIntervalFromDuration(params.PollInterval),
 		Status:       params.Status,
 	}
@@ -246,9 +270,13 @@ func (s *Store) CreateWallet(ctx context.Context, params CreateWalletParams) (*W
 	return dbWalletToDomain(&result), nil
 }
 
-// GetWallet retrieves a wallet by its address.
-func (s *Store) GetWallet(ctx context.Context, address string) (*Wallet, error) {
-	result, err := s.q.GetWallet(ctx, address)
+// GetWallet retrieves a wallet by its address and network.
+func (s *Store) GetWallet(ctx context.Context, address string, network string) (*Wallet, error) {
+	params := dbgen.GetWalletParams{
+		Address: address,
+		Network: network,
+	}
+	result, err := s.q.GetWallet(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -287,9 +315,10 @@ func (s *Store) ListActiveWallets(ctx context.Context) ([]*Wallet, error) {
 }
 
 // UpdateWalletPollTime updates the last poll time for a wallet.
-func (s *Store) UpdateWalletPollTime(ctx context.Context, address string, pollTime time.Time) (*Wallet, error) {
+func (s *Store) UpdateWalletPollTime(ctx context.Context, address string, network string, pollTime time.Time) (*Wallet, error) {
 	params := dbgen.UpdateWalletPollTimeParams{
 		Address:      address,
+		Network:      network,
 		LastPollTime: pgtype.Timestamptz{Time: pollTime, Valid: true},
 	}
 
@@ -302,9 +331,10 @@ func (s *Store) UpdateWalletPollTime(ctx context.Context, address string, pollTi
 }
 
 // UpdateWalletStatus updates the status of a wallet.
-func (s *Store) UpdateWalletStatus(ctx context.Context, address string, status string) (*Wallet, error) {
+func (s *Store) UpdateWalletStatus(ctx context.Context, address string, network string, status string) (*Wallet, error) {
 	params := dbgen.UpdateWalletStatusParams{
 		Address: address,
+		Network: network,
 		Status:  status,
 	}
 
@@ -317,13 +347,21 @@ func (s *Store) UpdateWalletStatus(ctx context.Context, address string, status s
 }
 
 // DeleteWallet removes a wallet from monitoring.
-func (s *Store) DeleteWallet(ctx context.Context, address string) error {
-	return s.q.DeleteWallet(ctx, address)
+func (s *Store) DeleteWallet(ctx context.Context, address string, network string) error {
+	params := dbgen.DeleteWalletParams{
+		Address: address,
+		Network: network,
+	}
+	return s.q.DeleteWallet(ctx, params)
 }
 
 // WalletExists checks if a wallet is registered.
-func (s *Store) WalletExists(ctx context.Context, address string) (bool, error) {
-	return s.q.WalletExists(ctx, address)
+func (s *Store) WalletExists(ctx context.Context, address string, network string) (bool, error) {
+	params := dbgen.WalletExistsParams{
+		Address: address,
+		Network: network,
+	}
+	return s.q.WalletExists(ctx, params)
 }
 
 // Helper functions to convert between sqlc types and domain types
@@ -332,6 +370,7 @@ func dbTransactionToDomain(db *dbgen.Transaction) *Transaction {
 	return &Transaction{
 		Signature:          db.Signature,
 		WalletAddress:      db.WalletAddress,
+		Network:            db.Network,
 		Slot:               db.Slot,
 		BlockTime:          db.BlockTime.Time,
 		Amount:             db.Amount,
@@ -360,6 +399,7 @@ func stringPtrFromPgtext(t pgtype.Text) *string {
 func dbWalletToDomain(db *dbgen.Wallet) *Wallet {
 	return &Wallet{
 		Address:      db.Address,
+		Network:      db.Network,
 		PollInterval: durationFromPgInterval(db.PollInterval),
 		LastPollTime: timePtrFromPgTimestamptz(db.LastPollTime),
 		Status:       db.Status,
