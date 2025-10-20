@@ -148,6 +148,10 @@ tidy: ## Tidy go modules
 clean: ## Clean build artifacts
 	rm -rf bin/
 
+.PHONY: bootstrap-wallets
+bootstrap-wallets: build-cli ## Bootstrap default wallets for monitoring
+	./scripts/bootstrap-wallets.sh
+
 .PHONY: pre-commit
 pre-commit: sqlc-verify test lint ## Run pre-commit checks
 

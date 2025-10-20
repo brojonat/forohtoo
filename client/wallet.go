@@ -72,11 +72,16 @@ func (c *Client) Register(ctx context.Context, address string, network string, p
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated {
+	// Accept both 201 (Created) and 200 (OK - updated existing)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		return c.parseErrorResponse(resp)
 	}
 
-	c.logger.Debug("wallet registered", "address", address, "poll_interval", pollInterval)
+	if resp.StatusCode == http.StatusOK {
+		c.logger.Debug("wallet updated", "address", address, "poll_interval", pollInterval)
+	} else {
+		c.logger.Debug("wallet registered", "address", address, "poll_interval", pollInterval)
+	}
 	return nil
 }
 

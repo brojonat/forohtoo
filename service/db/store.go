@@ -346,6 +346,22 @@ func (s *Store) UpdateWalletStatus(ctx context.Context, address string, network 
 	return dbWalletToDomain(&result), nil
 }
 
+// UpdateWalletPollInterval updates the poll interval for a wallet.
+func (s *Store) UpdateWalletPollInterval(ctx context.Context, address string, network string, pollInterval time.Duration) (*Wallet, error) {
+	params := dbgen.UpdateWalletPollIntervalParams{
+		Address:      address,
+		Network:      network,
+		PollInterval: pgIntervalFromDuration(pollInterval),
+	}
+
+	result, err := s.q.UpdateWalletPollInterval(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	return dbWalletToDomain(&result), nil
+}
+
 // DeleteWallet removes a wallet from monitoring.
 func (s *Store) DeleteWallet(ctx context.Context, address string, network string) error {
 	params := dbgen.DeleteWalletParams{

@@ -38,6 +38,14 @@ SET
 WHERE address = $1 AND network = $2
 RETURNING *;
 
+-- name: UpdateWalletPollInterval :one
+UPDATE wallets
+SET
+    poll_interval = $3,
+    updated_at = NOW()
+WHERE address = $1 AND network = $2
+RETURNING *;
+
 -- name: DeleteWallet :exec
 DELETE FROM wallets
 WHERE address = $1 AND network = $2;
