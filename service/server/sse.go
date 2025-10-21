@@ -65,6 +65,13 @@ func (p *SSEPublisher) Close() error {
 // If address path parameter is empty, streams all wallets. Otherwise, streams specific wallet.
 func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Disable write deadline for SSE streaming (long-lived connection)
+		// The default server WriteTimeout of 15s would kill the connection
+		rc := http.NewResponseController(w)
+		if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+			logger.WarnContext(r.Context(), "failed to disable write deadline", "error", err)
+		}
+
 		// Get wallet address from URL path parameter (may be empty for "all wallets" route)
 		address := r.PathValue("address")
 
