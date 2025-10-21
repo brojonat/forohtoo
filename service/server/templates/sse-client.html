@@ -235,14 +235,16 @@
       }
 
       function formatAmount(amount, tokenType) {
-        if (!tokenType || tokenType === "") {
-          // Native SOL (9 decimals)
-          return `${(amount / 1e9).toFixed(4)} SOL`;
-        }
-
+        // Check for USDC first (by mint address)
         if (USDC_MINT_ADDRESS && tokenType === USDC_MINT_ADDRESS) {
           // USDC (6 decimals)
           return `${(amount / 1e6).toFixed(2)} USDC`;
+        }
+
+        // Check if it's native SOL (empty or null tokenType)
+        if (!tokenType || tokenType === "") {
+          // Native SOL (9 decimals)
+          return `${(amount / 1e9).toFixed(4)} SOL`;
         }
 
         // Unknown SPL token - use 6 decimals as default for most SPL tokens
