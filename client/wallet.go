@@ -219,18 +219,28 @@ type Transaction struct {
 // The matcher is called for each transaction received via SSE, and Await
 // returns when the matcher returns true.
 //
+// The lookback parameter specifies how far back in time to retrieve historical
+// transactions before streaming live events. If lookback is 0, only new transactions
+// from the moment of connection are streamed. Historical events are limited to 1000.
+//
 // This is designed for payment gating in Temporal workflows - an activity can
 // call this method and block until a payment arrives.
 //
 // Example:
 //
-//	txn, err := client.Await(ctx, walletAddress, func(txn *Transaction) bool {
+//	// Wait for a transaction with specific memo, checking last 24 hours
+//	txn, err := client.Await(ctx, walletAddress, "mainnet", 24*time.Hour, func(txn *Transaction) bool {
 //	    // Check if memo contains expected workflow ID
 //	    return strings.Contains(txn.Memo, "payment-workflow-123")
 //	})
-func (c *Client) Await(ctx context.Context, address string, network string, matcher func(*Transaction) bool) (*Transaction, error) {
+func (c *Client) Await(ctx context.Context, address string, network string, lookback time.Duration, matcher func(*Transaction) bool) (*Transaction, error) {
 	// Build SSE stream URL
 	u := fmt.Sprintf("%s/api/v1/stream/transactions/%s?network=%s", c.baseURL, url.PathEscape(address), url.QueryEscape(network))
+
+	// Add lookback parameter if specified
+	if lookback > 0 {
+		u += fmt.Sprintf("&lookback=%s", url.QueryEscape(lookback.String()))
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {

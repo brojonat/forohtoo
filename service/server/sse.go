@@ -107,63 +107,90 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 			flusher.Flush()
 		}
 
-		// 1) Send historical transactions in chunks from a fixed time window
-		//    For now, we choose last 2 weeks. It does not seem useful to
-		//    allow arbitrary time ranges for this handler; the idea here is to oversend
-		//    so the client can have everything it needs.
-		start := time.Now().Add(-14 * 24 * time.Hour)
-		end := time.Now()
+		// 1) Parse and validate lookback parameter
+		lookbackParam := r.URL.Query().Get("lookback")
+		var lookback time.Duration
+		var err error
 
-		// If a specific wallet is requested, we could filter by wallet here by fetching only that wallet's txns.
-		// To keep it simple and efficient, we'll fetch globally and filter in-memory when address is provided.
-		// DB path for per-wallet could be added later for optimization.
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancel()
-		historical, err := publisher.store.ListTransactionsByTimeRange(ctx, start, end)
-		if err != nil {
-			logger.ErrorContext(r.Context(), "failed to load historical transactions", "error", err)
-			fmt.Fprintf(w, "event: error\ndata: {\"error\": \"failed to load history\"}\n\n")
-			return
+		if lookbackParam != "" {
+			lookback, err = time.ParseDuration(lookbackParam)
+			if err != nil {
+				logger.WarnContext(r.Context(), "invalid lookback parameter", "lookback", lookbackParam, "error", err)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(400)
+				json.NewEncoder(w).Encode(map[string]string{"error": "invalid lookback duration format"})
+				return
+			}
+
+			if lookback < 0 {
+				logger.WarnContext(r.Context(), "negative lookback parameter", "lookback", lookback)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(400)
+				json.NewEncoder(w).Encode(map[string]string{"error": "lookback must be non-negative"})
+				return
+			}
 		}
 
-		// Filter by wallet if requested
-		if address != "" {
-			filtered := make([]*db.Transaction, 0, len(historical))
-			for _, t := range historical {
-				if t.WalletAddress == address {
-					filtered = append(filtered, t)
+		// 2) Send historical transactions if lookback > 0
+		if lookback > 0 {
+			start := time.Now().Add(-lookback)
+			end := time.Now()
+
+			// Fetch historical transactions from database
+			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			defer cancel()
+			historical, err := publisher.store.ListTransactionsByTimeRange(ctx, start, end)
+			if err != nil {
+				logger.ErrorContext(r.Context(), "failed to load historical transactions", "error", err)
+				fmt.Fprintf(w, "event: error\ndata: {\"error\": \"failed to load history\"}\n\n")
+				return
+			}
+
+			// Filter by wallet if requested
+			if address != "" {
+				filtered := make([]*db.Transaction, 0, len(historical))
+				for _, t := range historical {
+					if t.WalletAddress == address {
+						filtered = append(filtered, t)
+					}
+				}
+				historical = filtered
+			}
+
+			// Limit to 1000 events maximum
+			const maxHistoricalEvents = 1000
+			if len(historical) > maxHistoricalEvents {
+				historical = historical[:maxHistoricalEvents]
+			}
+
+			// Send in chunks of 200 to avoid huge payloads
+			const chunkSize = 200
+			for i := 0; i < len(historical); i += chunkSize {
+				j := i + chunkSize
+				if j > len(historical) {
+					j = len(historical)
+				}
+				batch := historical[i:j]
+
+				// Convert to events
+				events := make([]*natspkg.TransactionEvent, 0, len(batch))
+				for _, t := range batch {
+					events = append(events, natspkg.FromDBTransaction(t))
+				}
+				payload, _ := json.Marshal(map[string]any{
+					"start":  start,
+					"end":    end,
+					"count":  len(events),
+					"events": events,
+				})
+				fmt.Fprintf(w, "event: transactions_chunk\ndata: %s\n\n", string(payload))
+				if flusher, ok := w.(http.Flusher); ok {
+					flusher.Flush()
 				}
 			}
-			historical = filtered
 		}
 
-		// Send in chunks of 200 to avoid huge payloads
-		const chunkSize = 200
-		for i := 0; i < len(historical); i += chunkSize {
-			j := i + chunkSize
-			if j > len(historical) {
-				j = len(historical)
-			}
-			batch := historical[i:j]
-
-			// Convert to events
-			events := make([]*natspkg.TransactionEvent, 0, len(batch))
-			for _, t := range batch {
-				events = append(events, natspkg.FromDBTransaction(t))
-			}
-			payload, _ := json.Marshal(map[string]any{
-				"start":  start,
-				"end":    end,
-				"count":  len(events),
-				"events": events,
-			})
-			fmt.Fprintf(w, "event: transactions_chunk\ndata: %s\n\n", string(payload))
-			if flusher, ok := w.(http.Flusher); ok {
-				flusher.Flush()
-			}
-		}
-
-		// 2) Switch to live streaming via NATS
+		// 3) Switch to live streaming via NATS
 		cons, err := publisher.js.CreateOrUpdateConsumer(r.Context(), natspkg.StreamName, jetstream.ConsumerConfig{
 			FilterSubject: subject,
 			AckPolicy:     jetstream.AckExplicitPolicy,

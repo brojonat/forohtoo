@@ -355,6 +355,12 @@ func awaitCommand() *cli.Command {
 				Value:   5 * time.Minute,
 				Usage:   "How long to wait for transaction (default: 5m, max: 10m)",
 			},
+			&cli.DurationFlag{
+				Name:    "lookback",
+				Aliases: []string{"l"},
+				Value:   0,
+				Usage:   "How far back to look for historical transactions (e.g., 24h, 7d). Default is 0 (only new transactions). Limited to 1000 events.",
+			},
 			&cli.BoolFlag{
 				Name:    "json",
 				Aliases: []string{"j"},
@@ -373,6 +379,7 @@ func awaitCommand() *cli.Command {
 			usdcAmount := c.Float64("usdc-amount-equal")
 			jqFilters := c.StringSlice("must-jq")
 			timeout := c.Duration("timeout")
+			lookback := c.Duration("lookback")
 			jsonOutput := c.Bool("json")
 
 			// Validate network
@@ -480,6 +487,9 @@ func awaitCommand() *cli.Command {
 				for _, filter := range jqFilters {
 					fmt.Fprintf(os.Stderr, "  jq Filter: %s\n", filter)
 				}
+				if lookback > 0 {
+					fmt.Fprintf(os.Stderr, "  Lookback: %v\n", lookback)
+				}
 				fmt.Fprintf(os.Stderr, "  Timeout: %v\n\n", timeout)
 			}
 
@@ -487,7 +497,7 @@ func awaitCommand() *cli.Command {
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 
-			txn, err := cl.Await(ctx, address, network, matcher)
+			txn, err := cl.Await(ctx, address, network, lookback, matcher)
 			if err != nil {
 				return fmt.Errorf("failed to await transaction: %w", err)
 			}

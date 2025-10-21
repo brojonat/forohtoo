@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Lookback parameter for transaction streaming**: `Await` method and SSE streaming now support configurable historical transaction retrieval
+  - New `lookback` duration parameter allows fetching historical transactions before streaming live events
+  - Historical events limited to 1000 maximum for performance
+  - CLI `--lookback` flag added to `await` command (e.g., `--lookback 24h`, `--lookback 7d`)
+  - Default behavior changed: no historical events sent unless explicitly requested via lookback parameter
+  - Server handler validates lookback parameter and rejects negative durations
 - **Multi-network support**: Service now supports monitoring wallets on both Solana mainnet and devnet simultaneously
   - New `network` parameter (mainnet|devnet) required for all wallet operations
   - Separate RPC endpoints and USDC mint addresses for each network
@@ -18,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Network-aware Temporal workflow scheduling with separate schedules per network
 
 ### Changed
+- **BREAKING**: Client `Await` method signature changed to include `lookback time.Duration` parameter
+  - Old: `Await(ctx, address, network, matcher)`
+  - New: `Await(ctx, address, network, lookback, matcher)`
+  - Pass `0` for lookback to get only new transactions (previous default was 14 days of history)
+- **BREAKING**: SSE streaming endpoint behavior changed - no historical transactions sent by default
+  - Previous: Always sent last 14 days of transactions
+  - New: Only sends historical transactions if `lookback` query parameter is specified
+  - Example: `/api/v1/stream/transactions/{address}?network=mainnet&lookback=24h`
 - **BREAKING**: Configuration now requires both `SOLANA_MAINNET_RPC_URL` and `SOLANA_DEVNET_RPC_URL` (replaces `SOLANA_RPC_URL`)
 - **BREAKING**: Configuration now requires both `USDC_MAINNET_MINT_ADDRESS` and `USDC_DEVNET_MINT_ADDRESS`
 - **BREAKING**: API endpoints now require `network` parameter:
