@@ -132,6 +132,11 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 		"transaction_count", len(mainWalletResult.Transactions),
 	)
 
+	// Sleep to avoid rate limiting between main wallet and USDC ATA polls
+	// At 600ms per transaction + retries, the main wallet poll just made ~20 RPC calls
+	// Wait a bit before making another batch of calls
+	workflow.Sleep(ctx, 2*time.Second)
+
 	// Poll USDC associated token account
 	usdcATA := getUSDCAssociatedTokenAccount(input.Address, input.Network)
 	allTransactions := mainWalletResult.Transactions
