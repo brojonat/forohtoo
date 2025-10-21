@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Forohtoo Transaction Stream</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" href="/favicon.ico" />
     <script src="https://unpkg.com/rxjs@7/dist/bundles/rxjs.umd.min.js"></script>
     <script src="https://unpkg.com/d3@7/dist/d3.min.js"></script>
     <style>
@@ -89,13 +91,32 @@
         width: 100%;
         height: 280px;
       }
+      .brush .selection {
+        fill: #4caf50;
+        fill-opacity: 0.15;
+        stroke: #4caf50;
+        stroke-width: 2px;
+        stroke-dasharray: 4 2;
+      }
+      .brush .handle {
+        fill: #4caf50;
+        cursor: ew-resize;
+        rx: 3;
+      }
       .transaction {
         border-bottom: 1px solid #eee;
         padding: 15px 0;
         animation: fadeIn 0.3s;
+        transition: background-color 0.3s, transform 0.3s;
       }
       .transaction:last-child {
         border-bottom: none;
+      }
+      .transaction.highlighted {
+        background-color: #e8f5e9;
+        transform: scale(1.01);
+        border-radius: 4px;
+        padding: 15px 10px;
       }
       .transaction-header {
         display: flex;
@@ -176,7 +197,16 @@
     <div class="status disconnected" id="status">Disconnected</div>
 
     <div class="chart">
-      <h2 style="margin: 0 0 12px 0">USDC Timeline (24 Hours)</h2>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="margin: 0">USDC Timeline</h2>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <button class="btn-clear" onclick="resetTimeRange()" style="padding: 6px 12px; font-size: 12px;">Reset Zoom</button>
+          <span id="timeRangeLabel" style="font-size: 12px; color: #666;"></span>
+        </div>
+      </div>
+      <div style="font-size: 11px; color: #999; margin-bottom: 8px;">
+        💡 Drag to select a time range, click outside to reset
+      </div>
       <svg id="timeline" class="timeline"></svg>
     </div>
 
@@ -202,7 +232,8 @@
 
     <script id="template-data" type="application/json">
       {
-        "usdcMintAddress": {{if .USDCMintAddress}}"{{.USDCMintAddress}}"{{else}}""{{end}}
+        "usdcMainnetMintAddress": {{if .USDCMainnetMintAddress}}"{{.USDCMainnetMintAddress}}"{{else}}""{{end}},
+        "usdcDevnetMintAddress": {{if .USDCDevnetMintAddress}}"{{.USDCDevnetMintAddress}}"{{else}}""{{end}}
       }
     </script>
 
@@ -211,7 +242,13 @@
       const templateData = JSON.parse(
         document.getElementById("template-data").textContent
       );
-      const USDC_MINT_ADDRESS = templateData.usdcMintAddress;
+      const USDC_MAINNET_MINT_ADDRESS = templateData.usdcMainnetMintAddress;
+      const USDC_DEVNET_MINT_ADDRESS = templateData.usdcDevnetMintAddress;
+
+      // Helper to check if a token is USDC (mainnet or devnet)
+      function isUSDC(tokenType) {
+        return tokenType === USDC_MAINNET_MINT_ADDRESS || tokenType === USDC_DEVNET_MINT_ADDRESS;
+      }
 
       let eventSource = null;
       let transactionCount = 0;
@@ -219,6 +256,10 @@
       const knownSignatures = new Set();
       let timelineData = []; // Array of TransactionEvent
       const SERVER_URL = window.location.origin;
+
+      // Time range state
+      let currentTimeRange = null; // null means show all data
+      let brush = null; // D3 brush instance
 
       function updateStatus(status, message) {
         const statusEl = document.getElementById("status");
@@ -235,8 +276,8 @@
       }
 
       function formatAmount(amount, tokenType) {
-        // Check for USDC first (by mint address)
-        if (USDC_MINT_ADDRESS && tokenType === USDC_MINT_ADDRESS) {
+        // Check for USDC first (by mint address - mainnet or devnet)
+        if (tokenType && isUSDC(tokenType)) {
           // USDC (6 decimals)
           return `${(amount / 1e6).toFixed(2)} USDC`;
         }
@@ -272,6 +313,7 @@
             .append("g")
             .attr("class", "root")
             .attr("transform", `translate(${margin.left},${margin.top})`);
+          gRoot.append("g").attr("class", "brush-layer");
           gRoot
             .append("g")
             .attr("class", "x-axis")
@@ -298,19 +340,25 @@
           return;
         }
 
-        // Filter to only USDC transactions
-        const usdcData = USDC_MINT_ADDRESS
-          ? data.filter((d) => d.token_type === USDC_MINT_ADDRESS)
-          : [];
+        // Filter to only USDC transactions (mainnet or devnet)
+        const usdcData = data.filter((d) => d.token_type && isUSDC(d.token_type));
 
-        // Fixed 24-hour window: now back to 24 hours ago
-        const now = new Date();
-        const twentyFourHoursAgo = new Date(
-          now.getTime() - 24 * 60 * 60 * 1000
-        );
+        // Determine time range: use currentTimeRange if set, otherwise use all data
+        let timeExtent;
+        if (currentTimeRange) {
+          timeExtent = currentTimeRange;
+        } else if (usdcData.length > 0) {
+          // Use data extent
+          timeExtent = d3.extent(usdcData, (d) => new Date(d.block_time || d.published_at));
+        } else {
+          // Fallback to last 24 hours if no data
+          const now = new Date();
+          timeExtent = [new Date(now.getTime() - 24 * 60 * 60 * 1000), now];
+        }
+
         const x = d3
           .scaleTime()
-          .domain([twentyFourHoursAgo, now])
+          .domain(timeExtent)
           .range([0, innerWidth]);
 
         // Y encodes USDC amount (convert from micro-USDC to USDC)
@@ -359,7 +407,18 @@
               .attr("fill", color)
               .attr("opacity", 0.8)
               .attr("stroke", "#fff")
-              .attr("stroke-width", 1.5);
+              .attr("stroke-width", 1.5)
+              .style("cursor", "pointer")
+              .on("click", function(event, d) {
+                event.stopPropagation(); // Prevent brush from triggering
+                scrollToTransaction(d.signature);
+              })
+              .on("mouseenter", function() {
+                d3.select(this).attr("r", 8).attr("opacity", 1);
+              })
+              .on("mouseleave", function() {
+                d3.select(this).attr("r", 6).attr("opacity", 0.8);
+              });
 
             circles
               .append("title")
@@ -368,7 +427,7 @@
                   `${d.signature}\n${formatAmount(
                     d.amount || 0,
                     d.token_type
-                  )}\n${formatDate(d.block_time || d.published_at)}`
+                  )}\n${formatDate(d.block_time || d.published_at)}\n\nClick to scroll to transaction`
               );
 
             return circles;
@@ -393,6 +452,91 @@
           },
           (exit) => exit.remove()
         );
+
+        // Add brush for time range selection (integrated into the main timeline)
+        if (usdcData.length > 0) {
+          // Get full time extent from all data
+          const fullTimeExtent = d3.extent(usdcData, (d) => new Date(d.block_time || d.published_at));
+          const fullXScale = d3.scaleTime().domain(fullTimeExtent).range([0, innerWidth]);
+
+          // Create or update brush
+          if (!brush) {
+            brush = d3.brushX()
+              .extent([[0, 0], [innerWidth, innerHeight]])
+              .on("end", brushed);
+          }
+
+          const brushLayer = gRoot.select("g.brush-layer");
+          brushLayer.selectAll("*").remove();
+          brushLayer.call(brush);
+
+          function brushed(event) {
+            const selection = event.selection;
+            if (!event.sourceEvent) return; // Ignore programmatic brush updates
+
+            if (selection) {
+              // User selected a range
+              currentTimeRange = selection.map(fullXScale.invert);
+              // Clear the brush selection visually after capturing the range
+              brushLayer.call(brush.move, null);
+              renderTimeline(timelineData);
+            } else {
+              // User clicked outside to deselect
+              currentTimeRange = null;
+              renderTimeline(timelineData);
+            }
+          }
+        }
+
+        updateTimeRangeLabel();
+      }
+
+      // Update the time range label
+      function updateTimeRangeLabel() {
+        const label = document.getElementById("timeRangeLabel");
+        if (currentTimeRange) {
+          const fmt = d3.timeFormat("%b %d, %H:%M");
+          label.textContent = `Showing: ${fmt(currentTimeRange[0])} - ${fmt(currentTimeRange[1])}`;
+        } else {
+          label.textContent = "Showing: All data";
+        }
+      }
+
+      // Reset time range to show all data
+      function resetTimeRange() {
+        currentTimeRange = null;
+        if (brush) {
+          d3.select("#timeline .brush-layer").call(brush.move, null);
+        }
+        renderTimeline(timelineData);
+      }
+
+      // Scroll to and highlight a transaction in the list
+      function scrollToTransaction(signature) {
+        // Remove any existing highlights
+        document.querySelectorAll(".transaction.highlighted").forEach((el) => {
+          el.classList.remove("highlighted");
+        });
+
+        // Find the transaction element
+        const txnEl = document.querySelector(
+          `.transaction[data-signature="${signature}"]`
+        );
+        if (txnEl) {
+          // Scroll to it smoothly
+          txnEl.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+
+          // Highlight it
+          txnEl.classList.add("highlighted");
+
+          // Remove highlight after 3 seconds
+          setTimeout(() => {
+            txnEl.classList.remove("highlighted");
+          }, 3000);
+        }
       }
 
       function addTransaction(txn) {
@@ -405,6 +549,7 @@
 
         const txnEl = document.createElement("div");
         txnEl.className = "transaction";
+        txnEl.setAttribute("data-signature", txn.signature);
 
         const metaItems = [];
         metaItems.push(`

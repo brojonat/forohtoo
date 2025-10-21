@@ -101,10 +101,10 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 		}
 
 		// 1) Send historical transactions in chunks from a fixed time window
-		//    For now, we choose last 24 hours. It does not seem useful to
-		//    allow arbitrary time ranges for this handler; the id here is to oversend
+		//    For now, we choose last 2 weeks. It does not seem useful to
+		//    allow arbitrary time ranges for this handler; the idea here is to oversend
 		//    so the client can have everything it needs.
-		start := time.Now().Add(-24 * time.Hour)
+		start := time.Now().Add(-14 * 24 * time.Hour)
 		end := time.Now()
 
 		// If a specific wallet is requested, we could filter by wallet here by fetching only that wallet's txns.

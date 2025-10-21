@@ -11,6 +11,9 @@ import (
 //go:embed templates/*.html
 var templatesFS embed.FS
 
+//go:embed static/*
+var staticFS embed.FS
+
 // TemplateRenderer holds parsed HTML templates
 type TemplateRenderer struct {
 	templates *template.Template
@@ -41,12 +44,27 @@ func (tr *TemplateRenderer) Render(w http.ResponseWriter, name string, data inte
 func handleSSEClientPage(renderer *TemplateRenderer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data := map[string]interface{}{
-			"USDCMintAddress": os.Getenv("USDC_MINT_ADDRESS"),
+			"USDCMainnetMintAddress": os.Getenv("USDC_MAINNET_MINT_ADDRESS"),
+			"USDCDevnetMintAddress":  os.Getenv("USDC_DEVNET_MINT_ADDRESS"),
 		}
 		if err := renderer.Render(w, "sse-client.html", data); err != nil {
 			renderer.logger.Error("failed to render template", "error", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
+	}
+}
+
+// handleFavicon serves the favicon from embedded static files
+func handleFavicon() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, err := staticFS.ReadFile("static/favicon.svg")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "public, max-age=31536000")
+		w.Write(data)
 	}
 }

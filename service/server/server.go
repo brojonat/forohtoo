@@ -76,6 +76,8 @@ func (s *Server) Start() error {
 	if s.renderer != nil {
 		mux.HandleFunc("GET /", handleSSEClientPage(s.renderer))
 		mux.HandleFunc("GET /stream", handleSSEClientPage(s.renderer))
+		mux.HandleFunc("GET /favicon.ico", handleFavicon())
+		mux.HandleFunc("GET /favicon.svg", handleFavicon())
 		s.logger.Info("HTML page endpoints enabled")
 	}
 
