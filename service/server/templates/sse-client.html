@@ -759,10 +759,10 @@
         let url;
 
         if (walletAddress) {
-          url = `${SERVER_URL}/api/v1/stream/transactions/${walletAddress}`;
+          url = `${SERVER_URL}/api/v1/stream/transactions/${walletAddress}?lookback=168h`;
           updateStatus("connecting", `Connecting to ${walletAddress}...`);
         } else {
-          url = `${SERVER_URL}/api/v1/stream/transactions`;
+          url = `${SERVER_URL}/api/v1/stream/transactions?lookback=168h`;
           updateStatus("connecting", "Connecting to all wallets...");
         }
 
