@@ -670,6 +670,8 @@
             let added = 0;
             for (const ev of events) {
               if (knownSignatures.has(ev.signature)) continue;
+              // Filter out transactions without a from_address
+              if (!ev.from_address) continue;
               knownSignatures.add(ev.signature);
               timelineData.push(ev);
               addTransaction(ev);
@@ -691,6 +693,8 @@
         subscriptions.push(
           live$.subscribe((ev) => {
             if (knownSignatures.has(ev.signature)) return;
+            // Filter out transactions without a from_address
+            if (!ev.from_address) return;
             knownSignatures.add(ev.signature);
             timelineData.push(ev);
             addTransaction(ev);
