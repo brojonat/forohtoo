@@ -14,7 +14,6 @@ import (
 	"github.com/brojonat/forohtoo/service/db"
 	"github.com/brojonat/forohtoo/service/temporal"
 	solanago "github.com/gagliardetto/solana-go"
-	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -51,7 +50,9 @@ func handleUnregisterWallet(store *db.Store, logger *slog.Logger) http.Handler {
 		}
 
 		// Check if wallet exists
-		exists, err := store.WalletExists(r.Context(), address, network)
+		// Note: This handler is deprecated and only used in tests. Use handleUnregisterWalletWithScheduler instead.
+		// Using empty asset_type and token_mint for backward compatibility
+		exists, err := store.WalletExists(r.Context(), address, network, "", "")
 		if err != nil {
 			logger.Error("failed to check wallet existence", "address", address, "network", network, "error", err)
 			writeError(w, "internal server error", http.StatusInternalServerError)
@@ -64,7 +65,7 @@ func handleUnregisterWallet(store *db.Store, logger *slog.Logger) http.Handler {
 		}
 
 		// Delete wallet
-		if err := store.DeleteWallet(r.Context(), address, network); err != nil {
+		if err := store.DeleteWallet(r.Context(), address, network, "", ""); err != nil {
 			logger.Error("failed to delete wallet", "address", address, "network", network, "error", err)
 			writeError(w, "failed to unregister wallet", http.StatusInternalServerError)
 			return
@@ -268,88 +269,47 @@ func handleRegisterWalletWithScheduler(store *db.Store, scheduler temporal.Sched
 		}
 
 		wallet, err := store.CreateWallet(r.Context(), params)
-		isUpdate := false
-		statusCode := http.StatusCreated
-
 		if err != nil {
-			// Check for duplicate key error - if so, update instead
+			// Check for duplicate key error
 			if strings.Contains(err.Error(), "duplicate key") {
-				logger.Debug("wallet asset already exists, updating poll interval",
+				logger.Debug("wallet asset already exists",
 					"address", req.Address,
 					"network", req.Network,
 					"asset_type", req.Asset.Type,
 					"token_mint", tokenMint,
 				)
-
-				// Update the poll interval
-				wallet, err = store.UpdateWalletPollInterval(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, pollInterval)
-				if err != nil {
-					logger.Error("failed to update wallet asset poll interval", "address", req.Address, "error", err)
-					writeError(w, "failed to update wallet asset", http.StatusInternalServerError)
-					return
-				}
-				isUpdate = true
-				statusCode = http.StatusOK
-			} else {
-				logger.Error("failed to create wallet asset", "address", req.Address, "error", err)
-				writeError(w, "failed to register wallet asset", http.StatusInternalServerError)
+				writeError(w, "wallet asset already registered", http.StatusConflict)
 				return
 			}
+			logger.Error("failed to create wallet asset", "address", req.Address, "error", err)
+			writeError(w, "failed to register wallet asset", http.StatusInternalServerError)
+			return
 		}
 
-		// Create or update Temporal schedule
-		if isUpdate {
-			// For updates, delete old schedule and create new one
-			logger.Debug("recreating schedule with new poll interval",
-				"address", req.Address,
-				"network", req.Network,
-				"asset_type", req.Asset.Type,
-				"token_mint", tokenMint,
-			)
+		// Create Temporal schedule for new wallet asset
+		if err := scheduler.CreateWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, pollInterval); err != nil {
+			logger.Error("failed to create schedule", "address", req.Address, "network", req.Network, "error", err)
 
-			// Delete old schedule (ignore errors if it doesn't exist)
-			_ = scheduler.DeleteWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint)
-
-			// Create new schedule with updated interval
-			if err := scheduler.CreateWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, pollInterval); err != nil {
-				logger.Error("failed to recreate schedule", "address", req.Address, "network", req.Network, "error", err)
-				writeError(w, "failed to update schedule for wallet asset", http.StatusInternalServerError)
-				return
+			// Rollback: delete the wallet asset we just created
+			if delErr := store.DeleteWallet(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint); delErr != nil {
+				logger.Error("failed to rollback wallet asset creation", "address", req.Address, "network", req.Network, "error", delErr)
 			}
 
-			logger.Info("wallet asset updated with new schedule",
-				"address", wallet.Address,
-				"network", req.Network,
-				"asset_type", req.Asset.Type,
-				"token_mint", tokenMint,
-				"poll_interval", wallet.PollInterval,
-			)
-		} else {
-			// Create Temporal schedule for new wallet asset
-			if err := scheduler.CreateWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, pollInterval); err != nil {
-				logger.Error("failed to create schedule", "address", req.Address, "network", req.Network, "error", err)
-
-				// Rollback: delete the wallet asset we just created
-				if delErr := store.DeleteWallet(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint); delErr != nil {
-					logger.Error("failed to rollback wallet asset creation", "address", req.Address, "network", req.Network, "error", delErr)
-				}
-
-				writeError(w, "failed to create schedule for wallet asset", http.StatusInternalServerError)
-				return
-			}
-
-			logger.Info("wallet asset registered with schedule",
-				"address", wallet.Address,
-				"network", req.Network,
-				"asset_type", req.Asset.Type,
-				"token_mint", tokenMint,
-				"poll_interval", wallet.PollInterval,
-			)
+			writeError(w, "failed to create schedule for wallet asset", http.StatusInternalServerError)
+			return
 		}
+
+		logger.Info("wallet asset registered with schedule",
+			"address", wallet.Address,
+			"network", req.Network,
+			"asset_type", req.Asset.Type,
+			"token_mint", tokenMint,
+			"poll_interval", wallet.PollInterval,
+		)
 
 		// Return wallet asset
 		resp := walletToResponse(wallet)
-		writeJSON(w, resp, statusCode)
+		writeJSON(w, resp, http.StatusCreated)
 	})
 }
 

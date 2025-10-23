@@ -199,6 +199,8 @@ func PollWalletWorkflow(ctx workflow.Context, input PollWalletInput) (*PollWalle
 	writeInput := WriteTransactionsInput{
 		WalletAddress: input.WalletAddress,
 		Network:       input.Network,
+		AssetType:     input.AssetType,
+		TokenMint:     input.TokenMint,
 		Transactions:  pollResult.Transactions,
 	}
 

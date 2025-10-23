@@ -562,7 +562,9 @@ func reconcileCommand() *cli.Command {
 					network := parts[1]
 
 					// Get wallet to get poll interval
-					wallet, err := store.GetWallet(ctx, addr, network)
+					// TODO: This needs to be updated to handle multiple assets per wallet
+					// For now, we just use empty asset_type and token_mint to get the first/default asset
+					wallet, err := store.GetWallet(ctx, addr, network, "", "")
 					if err != nil {
 						fmt.Printf("  ✗ Failed to get wallet %s on %s: %v\n", addr, network, err)
 						continue

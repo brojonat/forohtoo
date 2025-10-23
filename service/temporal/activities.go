@@ -54,6 +54,8 @@ type PollSolanaResult struct {
 type WriteTransactionsInput struct {
 	WalletAddress string                `json:"wallet_address"`
 	Network       string                `json:"network"`
+	AssetType     string                `json:"asset_type"`
+	TokenMint     string                `json:"token_mint"`
 	Transactions  []*solana.Transaction `json:"transactions"`
 }
 
@@ -79,9 +81,9 @@ type GetExistingTransactionSignaturesResult struct {
 // This allows for easy mocking in tests.
 type StoreInterface interface {
 	CreateTransaction(context.Context, db.CreateTransactionParams) (*db.Transaction, error)
-	UpdateWalletPollTime(context.Context, string, string, time.Time) (*db.Wallet, error)
+	UpdateWalletPollTime(context.Context, string, string, string, string, time.Time) (*db.Wallet, error)
 	GetTransaction(context.Context, string, string) (*db.Transaction, error)
-	GetWallet(context.Context, string, string) (*db.Wallet, error)
+	GetWallet(context.Context, string, string, string, string) (*db.Wallet, error)
 	GetTransactionSignaturesByWallet(context.Context, string, string, *time.Time, int32) ([]string, error)
 }
 
@@ -360,11 +362,13 @@ func (a *Activities) WriteTransactions(ctx context.Context, input WriteTransacti
 	}
 
 	// Update wallet's last poll time
-	_, err := a.store.UpdateWalletPollTime(ctx, input.WalletAddress, input.Network, time.Now())
+	_, err := a.store.UpdateWalletPollTime(ctx, input.WalletAddress, input.Network, input.AssetType, input.TokenMint, time.Now())
 	if err != nil {
 		a.logger.WarnContext(ctx, "failed to update wallet last poll time",
 			"wallet", input.WalletAddress,
 			"network", input.Network,
+			"asset_type", input.AssetType,
+			"token_mint", input.TokenMint,
 			"error", err,
 		)
 		// Don't fail the activity for this - transactions are written

@@ -91,8 +91,8 @@ func TestGetWallet(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Get wallet
-	wallet, err := store.GetWallet(ctx, "wallet456", "mainnet")
+	// Get wallet - need to provide asset_type and token_mint (use defaults from CreateWalletParams)
+	wallet, err := store.GetWallet(ctx, "wallet456", "mainnet", "", "")
 	require.NoError(t, err)
 	require.NotNil(t, wallet)
 
@@ -111,7 +111,7 @@ func TestGetWallet_NotFound(t *testing.T) {
 
 	ctx := context.Background()
 
-	wallet, err := store.GetWallet(ctx, "nonexistent", "mainnet")
+	wallet, err := store.GetWallet(ctx, "nonexistent", "mainnet", "", "")
 	require.Error(t, err)
 	assert.Nil(t, wallet)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
@@ -228,7 +228,7 @@ func TestUpdateWalletPollTime(t *testing.T) {
 
 	// Update poll time
 	now := time.Now()
-	updated, err := store.UpdateWalletPollTime(ctx, "wallet789", "mainnet", now)
+	updated, err := store.UpdateWalletPollTime(ctx, "wallet789", "mainnet", "", "", now)
 	require.NoError(t, err)
 	require.NotNil(t, updated.LastPollTime)
 
@@ -258,13 +258,13 @@ func TestUpdateWalletStatus(t *testing.T) {
 	assert.Equal(t, "active", wallet.Status)
 
 	// Update status to paused
-	updated, err := store.UpdateWalletStatus(ctx, "wallet999", "mainnet", "paused")
+	updated, err := store.UpdateWalletStatus(ctx, "wallet999", "mainnet", "", "", "paused")
 	require.NoError(t, err)
 	assert.Equal(t, "paused", updated.Status)
 	assert.True(t, updated.UpdatedAt.After(wallet.UpdatedAt))
 
 	// Verify status was persisted
-	fetched, err := store.GetWallet(ctx, "wallet999", "mainnet")
+	fetched, err := store.GetWallet(ctx, "wallet999", "mainnet", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "paused", fetched.Status)
 }
@@ -288,11 +288,11 @@ func TestDeleteWallet(t *testing.T) {
 	require.NoError(t, err)
 
 	// Delete wallet
-	err = store.DeleteWallet(ctx, "wallet111", "mainnet")
+	err = store.DeleteWallet(ctx, "wallet111", "mainnet", "", "")
 	require.NoError(t, err)
 
 	// Verify deletion
-	wallet, err := store.GetWallet(ctx, "wallet111", "mainnet")
+	wallet, err := store.GetWallet(ctx, "wallet111", "mainnet", "", "")
 	require.Error(t, err)
 	assert.Nil(t, wallet)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
@@ -308,7 +308,7 @@ func TestDeleteWallet_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	// Delete non-existent wallet should not error (idempotent)
-	err := store.DeleteWallet(ctx, "nonexistent", "mainnet")
+	err := store.DeleteWallet(ctx, "nonexistent", "mainnet", "", "")
 	require.NoError(t, err)
 }
 
@@ -322,7 +322,7 @@ func TestWalletExists(t *testing.T) {
 	ctx := context.Background()
 
 	// Check non-existent wallet
-	exists, err := store.WalletExists(ctx, "wallet222", "mainnet")
+	exists, err := store.WalletExists(ctx, "wallet222", "mainnet", "", "")
 	require.NoError(t, err)
 	assert.False(t, exists)
 
@@ -336,12 +336,12 @@ func TestWalletExists(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check existing wallet
-	exists, err = store.WalletExists(ctx, "wallet222", "mainnet")
+	exists, err = store.WalletExists(ctx, "wallet222", "mainnet", "", "")
 	require.NoError(t, err)
 	assert.True(t, exists)
 
 	// Same address on different network should not exist
-	exists, err = store.WalletExists(ctx, "wallet222", "devnet")
+	exists, err = store.WalletExists(ctx, "wallet222", "devnet", "", "")
 	require.NoError(t, err)
 	assert.False(t, exists)
 }
@@ -379,7 +379,7 @@ func TestWalletPollIntervalConversion(t *testing.T) {
 			assert.Equal(t, tc.interval, wallet.PollInterval)
 
 			// Verify roundtrip
-			fetched, err := store.GetWallet(ctx, address, "mainnet")
+			fetched, err := store.GetWallet(ctx, address, "mainnet", "", "")
 			require.NoError(t, err)
 			assert.Equal(t, tc.interval, fetched.PollInterval)
 		})

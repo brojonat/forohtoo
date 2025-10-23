@@ -15,7 +15,7 @@ import (
 func TestRegister_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
-		assert.Equal(t, "/api/v1/wallets", r.URL.Path)
+		assert.Equal(t, "/api/v1/wallet-assets", r.URL.Path)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 		var body map[string]interface{}
@@ -54,7 +54,7 @@ func TestRegister_ServerError(t *testing.T) {
 func TestUnregister_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "DELETE", r.Method)
-		assert.Equal(t, "/api/v1/wallets/wallet123", r.URL.Path)
+		assert.Equal(t, "/api/v1/wallet-assets/wallet123", r.URL.Path)
 		assert.Equal(t, "mainnet", r.URL.Query().Get("network"))
 
 		w.WriteHeader(http.StatusNoContent)

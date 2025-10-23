@@ -40,8 +40,8 @@ func (m *MockStore) CreateTransaction(ctx context.Context, params db.CreateTrans
 	return args.Get(0).(*db.Transaction), args.Error(1)
 }
 
-func (m *MockStore) UpdateWalletPollTime(ctx context.Context, address string, network string, pollTime time.Time) (*db.Wallet, error) {
-	args := m.Called(ctx, address, network, pollTime)
+func (m *MockStore) UpdateWalletPollTime(ctx context.Context, address string, network string, assetType string, tokenMint string, pollTime time.Time) (*db.Wallet, error) {
+	args := m.Called(ctx, address, network, assetType, tokenMint, pollTime)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -56,8 +56,8 @@ func (m *MockStore) GetTransaction(ctx context.Context, signature string, networ
 	return args.Get(0).(*db.Transaction), args.Error(1)
 }
 
-func (m *MockStore) GetWallet(ctx context.Context, address string, network string) (*db.Wallet, error) {
-	args := m.Called(ctx, address, network)
+func (m *MockStore) GetWallet(ctx context.Context, address string, network string, assetType string, tokenMint string) (*db.Wallet, error) {
+	args := m.Called(ctx, address, network, assetType, tokenMint)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -86,6 +86,7 @@ func TestActivities_PollSolana(t *testing.T) {
 			name: "successful poll with transactions",
 			input: PollSolanaInput{
 				Address: testWallet,
+				Network: "mainnet",
 				Limit:   100,
 			},
 			setupMock: func(m *MockSolanaClient) {
@@ -130,6 +131,7 @@ func TestActivities_PollSolana(t *testing.T) {
 			name: "successful poll with no transactions",
 			input: PollSolanaInput{
 				Address: testWallet,
+				Network: "mainnet",
 				Limit:   100,
 			},
 			setupMock: func(m *MockSolanaClient) {
@@ -147,6 +149,7 @@ func TestActivities_PollSolana(t *testing.T) {
 			name: "invalid wallet address",
 			input: PollSolanaInput{
 				Address: "invalid",
+				Network: "mainnet",
 				Limit:   100,
 			},
 			setupMock: func(m *MockSolanaClient) {
@@ -195,10 +198,11 @@ func TestActivities_GetExistingTransactionSignatures(t *testing.T) {
 			name: "successful fetch with signatures",
 			input: GetExistingTransactionSignaturesInput{
 				WalletAddress: testWallet,
+				Network:       "mainnet",
 			},
 			setupMock: func(m *MockStore) {
 				sigs := []string{"sig1", "sig2"}
-				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, mock.Anything, mock.Anything).
+				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, "mainnet", mock.Anything, mock.Anything).
 					Return(sigs, nil)
 			},
 			expectedResult: &GetExistingTransactionSignaturesResult{
@@ -210,9 +214,10 @@ func TestActivities_GetExistingTransactionSignatures(t *testing.T) {
 			name: "successful fetch with no signatures",
 			input: GetExistingTransactionSignaturesInput{
 				WalletAddress: testWallet,
+				Network:       "mainnet",
 			},
 			setupMock: func(m *MockStore) {
-				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, mock.Anything, mock.Anything).
+				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, "mainnet", mock.Anything, mock.Anything).
 					Return([]string{}, nil)
 			},
 			expectedResult: &GetExistingTransactionSignaturesResult{
@@ -224,9 +229,10 @@ func TestActivities_GetExistingTransactionSignatures(t *testing.T) {
 			name: "store returns an error",
 			input: GetExistingTransactionSignaturesInput{
 				WalletAddress: testWallet,
+				Network:       "mainnet",
 			},
 			setupMock: func(m *MockStore) {
-				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, mock.Anything, mock.Anything).
+				m.On("GetTransactionSignaturesByWallet", mock.Anything, testWallet, "mainnet", mock.Anything, mock.Anything).
 					Return(nil, errors.New("db error"))
 			},
 			expectedResult: nil,
@@ -271,6 +277,9 @@ func TestActivities_WriteTransactions(t *testing.T) {
 			name: "write new transactions successfully",
 			input: WriteTransactionsInput{
 				WalletAddress: testWallet,
+				Network:       "mainnet",
+				AssetType:     "sol",
+				TokenMint:     "",
 				Transactions: []*solana.Transaction{
 					{
 						Signature: "sig1",
@@ -299,7 +308,7 @@ func TestActivities_WriteTransactions(t *testing.T) {
 				})).Return(&db.Transaction{Signature: "sig2"}, nil)
 
 				// Update poll time succeeds
-				m.On("UpdateWalletPollTime", mock.Anything, testWallet, mock.Anything).
+				m.On("UpdateWalletPollTime", mock.Anything, testWallet, "mainnet", "sol", "", mock.Anything).
 					Return(&db.Wallet{Address: testWallet}, nil)
 			},
 			expectedResult: &WriteTransactionsResult{
@@ -312,6 +321,9 @@ func TestActivities_WriteTransactions(t *testing.T) {
 			name: "skip duplicate transactions",
 			input: WriteTransactionsInput{
 				WalletAddress: testWallet,
+				Network:       "mainnet",
+				AssetType:     "sol",
+				TokenMint:     "",
 				Transactions: []*solana.Transaction{
 					{
 						Signature: "sig1",
@@ -339,7 +351,7 @@ func TestActivities_WriteTransactions(t *testing.T) {
 				})).Return(&db.Transaction{Signature: "sig2"}, nil)
 
 				// Update poll time succeeds
-				m.On("UpdateWalletPollTime", mock.Anything, testWallet, mock.Anything).
+				m.On("UpdateWalletPollTime", mock.Anything, testWallet, "mainnet", "sol", "", mock.Anything).
 					Return(&db.Wallet{Address: testWallet}, nil)
 			},
 			expectedResult: &WriteTransactionsResult{
@@ -389,13 +401,16 @@ func TestActivities_WriteTransactions_SetsConfirmationStatus(t *testing.T) {
 		return p.Signature == "sig_failed" && p.ConfirmationStatus == "failed"
 	})).Return(&db.Transaction{Signature: "sig_failed"}, nil)
 
-	mockStore.On("UpdateWalletPollTime", mock.Anything, testWallet, mock.Anything, mock.Anything).
+	mockStore.On("UpdateWalletPollTime", mock.Anything, testWallet, "mainnet", "sol", "", mock.Anything).
 		Return(&db.Wallet{Address: testWallet}, nil)
 
 	activities := NewActivities(mockStore, nil, nil, nil, nil, slog.Default()) // nil for both solanaClients, publisher, and metrics
 
 	input := WriteTransactionsInput{
 		WalletAddress: testWallet,
+		Network:       "mainnet",
+		AssetType:     "sol",
+		TokenMint:     "",
 		Transactions: []*solana.Transaction{
 			{
 				Signature: "sig_confirmed",

@@ -90,6 +90,16 @@ func getWalletCommand() *cli.Command {
 				Value:   "mainnet",
 				Usage:   "Network (mainnet or devnet)",
 			},
+			&cli.StringFlag{
+				Name:  "asset-type",
+				Value: "",
+				Usage: "Asset type (sol or spl-token, empty for default)",
+			},
+			&cli.StringFlag{
+				Name:  "token-mint",
+				Value: "",
+				Usage: "Token mint address (for SPL tokens)",
+			},
 		},
 		Action: func(c *cli.Context) error {
 			if c.NArg() != 1 {
@@ -98,6 +108,8 @@ func getWalletCommand() *cli.Command {
 
 			address := c.Args().First()
 			network := c.String("network")
+			assetType := c.String("asset-type")
+			tokenMint := c.String("token-mint")
 
 			if network != "mainnet" && network != "devnet" {
 				return fmt.Errorf("invalid network: must be 'mainnet' or 'devnet'")
@@ -109,7 +121,7 @@ func getWalletCommand() *cli.Command {
 			}
 			defer closer()
 
-			wallet, err := store.GetWallet(context.Background(), address, network)
+			wallet, err := store.GetWallet(context.Background(), address, network, assetType, tokenMint)
 			if err != nil {
 				return fmt.Errorf("failed to get wallet: %w", err)
 			}

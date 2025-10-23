@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/brojonat/forohtoo/client"
+	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
 	"github.com/brojonat/forohtoo/service/server"
 	"github.com/brojonat/forohtoo/service/temporal"
@@ -28,7 +29,7 @@ func TestServerIntegration(t *testing.T) {
 	// Setup test database
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5433/forohtoo_test?sslmode=disable"
+		dbURL = "postgres://postgres:postgres@localhost:15433/forohtoo_test?sslmode=disable"
 	}
 
 	pool, err := pgxpool.New(context.Background(), dbURL)
@@ -43,10 +44,14 @@ func TestServerIntegration(t *testing.T) {
 
 	store := db.NewStore(pool)
 	scheduler := temporal.NewMockScheduler()
+	cfg := &config.Config{
+		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+	}
 
 	// Create test server on random port
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := server.New(":0", store, scheduler, nil, nil, logger) // :0 assigns random available port, nil for SSE and metrics
+	srv := server.New(":0", cfg, store, scheduler, nil, nil, logger) // :0 assigns random available port, nil for SSE and metrics
 
 	// Start server in background
 	serverAddr := make(chan string, 1)
@@ -55,7 +60,7 @@ func TestServerIntegration(t *testing.T) {
 		// We need to get the actual address after the server starts
 		// For now, use a fixed test port
 		testAddr := "localhost:18080"
-		srv = server.New(testAddr, store, scheduler, nil, nil, logger) // nil for SSE and metrics
+		srv = server.New(testAddr, cfg, store, scheduler, nil, nil, logger) // nil for SSE and metrics
 		serverAddr <- testAddr
 		serverErrors <- srv.Start()
 	}()
@@ -86,24 +91,33 @@ func TestServerIntegration(t *testing.T) {
 
 	// Test 1: Register a wallet
 	t.Run("register wallet", func(t *testing.T) {
-		err := c.Register(ctx, "TestWa11et11111111111111111111111111", "mainnet", 30*time.Second)
+		err := c.RegisterAsset(ctx, "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "mainnet", "sol", "", 30*time.Second)
 		require.NoError(t, err)
 	})
 
-	// Test 2: Get wallet
+	// Test 2: Verify wallet exists in list (Get endpoint doesn't support asset-aware wallets)
 	t.Run("get wallet", func(t *testing.T) {
-		wallet, err := c.Get(ctx, "TestWa11et11111111111111111111111111", "mainnet")
+		wallets, err := c.List(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, "TestWa11et11111111111111111111111111", wallet.Address)
-		assert.Equal(t, "mainnet", wallet.Network)
-		assert.Equal(t, 30*time.Second, wallet.PollInterval)
-		assert.Equal(t, "active", wallet.Status)
+		require.GreaterOrEqual(t, len(wallets), 1)
+
+		// Find the wallet we just registered
+		var found bool
+		for _, w := range wallets {
+			if w.Address == "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" && w.Network == "mainnet" {
+				assert.Equal(t, 30*time.Second, w.PollInterval)
+				assert.Equal(t, "active", w.Status)
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "registered wallet should be in list")
 	})
 
 	// Test 3: List wallets
 	t.Run("list wallets", func(t *testing.T) {
 		// Register another wallet
-		err := c.Register(ctx, "TestWa11et22222222222222222222222222", "mainnet", 60*time.Second)
+		err := c.RegisterAsset(ctx, "SysvarRent111111111111111111111111111111111", "mainnet", "sol", "", 60*time.Second)
 		require.NoError(t, err)
 
 		wallets, err := c.List(ctx)
@@ -112,8 +126,8 @@ func TestServerIntegration(t *testing.T) {
 
 		// Check both wallets are present
 		addresses := []string{wallets[0].Address, wallets[1].Address}
-		assert.Contains(t, addresses, "TestWa11et11111111111111111111111111")
-		assert.Contains(t, addresses, "TestWa11et22222222222222222222222222")
+		assert.Contains(t, addresses, "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+		assert.Contains(t, addresses, "SysvarRent111111111111111111111111111111111")
 	})
 
 	// Test 4: Get non-existent wallet
@@ -126,33 +140,33 @@ func TestServerIntegration(t *testing.T) {
 
 	// Test 5: Unregister wallet
 	t.Run("unregister wallet", func(t *testing.T) {
-		err := c.Unregister(ctx, "TestWa11et11111111111111111111111111", "mainnet")
+		err := c.UnregisterAsset(ctx, "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "mainnet", "sol", "")
 		require.NoError(t, err)
 
 		// Verify it's gone
-		wallet, err := c.Get(ctx, "TestWa11et11111111111111111111111111", "mainnet")
+		wallet, err := c.Get(ctx, "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "mainnet")
 		require.Error(t, err)
 		assert.Nil(t, wallet)
 	})
 
 	// Test 6: Register with valid poll interval
 	t.Run("register with valid poll interval", func(t *testing.T) {
-		err := c.Register(ctx, "TestWa11et33333333333333333333333333", "mainnet", 5*time.Minute)
+		err := c.RegisterAsset(ctx, "SysvarC1ock11111111111111111111111111111111", "mainnet", "sol", "", 5*time.Minute)
 		require.NoError(t, err)
 	})
 
 	// Test 7: Duplicate registration
 	t.Run("duplicate registration", func(t *testing.T) {
-		err := c.Register(ctx, "TestWa11et22222222222222222222222222", "mainnet", 30*time.Second)
+		err := c.RegisterAsset(ctx, "SysvarRent111111111111111111111111111111111", "mainnet", "sol", "", 30*time.Second)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to register wallet")
+		assert.Contains(t, err.Error(), "already registered")
 	})
 
 	// Test 8: Unregister non-existent wallet
 	t.Run("unregister non-existent wallet", func(t *testing.T) {
-		err := c.Unregister(ctx, "Nn5xistentWa11et444444444444444444", "mainnet")
+		err := c.UnregisterAsset(ctx, "Nn5xistentWa11et444444444444444444", "mainnet", "sol", "")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "wallet not found")
+		assert.Contains(t, err.Error(), "not found")
 	})
 }
 
@@ -168,7 +182,7 @@ func TestHealthEndpoint(t *testing.T) {
 
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5433/forohtoo_test?sslmode=disable"
+		dbURL = "postgres://postgres:postgres@localhost:15433/forohtoo_test?sslmode=disable"
 	}
 
 	pool, err := pgxpool.New(context.Background(), dbURL)
@@ -177,9 +191,13 @@ func TestHealthEndpoint(t *testing.T) {
 
 	store := db.NewStore(pool)
 	scheduler := temporal.NewMockScheduler()
+	cfg := &config.Config{
+		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+	}
 
 	testAddr := "localhost:18081"
-	srv := server.New(testAddr, store, scheduler, nil, nil, logger) // nil for SSE and metrics
+	srv := server.New(testAddr, cfg, store, scheduler, nil, nil, logger) // nil for SSE and metrics
 
 	// Start server
 	go srv.Start()

@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 
 	"github.com/brojonat/forohtoo/service/config"
-	"github.com/brojonat/forohtoo/service/db"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -36,9 +34,6 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("connected to database")
-
-	// Create store
-	store := db.NewStore(dbPool)
 
 	// Get USDC mint addresses from config
 	usdcMainnetMint := cfg.USDCMainnetMintAddress

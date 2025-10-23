@@ -251,7 +251,7 @@ func TestWalletAddCommand(t *testing.T) {
 
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" || r.URL.Path != "/api/v1/wallets" {
+		if r.Method != "POST" || r.URL.Path != "/api/v1/wallet-assets" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -292,7 +292,7 @@ func TestWalletAddCommand(t *testing.T) {
 		},
 	}
 
-	err := app.Run([]string{"test", "wallet", "add", "--server", server.URL, "test-wallet-123"})
+	err := app.Run([]string{"test", "wallet", "add", "--server", server.URL, "--asset", "sol", "test-wallet-123"})
 	
 	// Restore stdout
 	w.Close()
@@ -307,7 +307,7 @@ func TestWalletAddCommand(t *testing.T) {
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	if !bytes.Contains([]byte(output), []byte("✓ Wallet registered successfully")) {
+	if !bytes.Contains([]byte(output), []byte("✓ Wallet asset registered successfully")) {
 		t.Errorf("expected success message, got: %s", output)
 	}
 }
@@ -336,7 +336,7 @@ func TestWalletAddCommand_JSON(t *testing.T) {
 		},
 	}
 
-	err := app.Run([]string{"test", "wallet", "add", "--server", server.URL, "--json", "test-wallet"})
+	err := app.Run([]string{"test", "wallet", "add", "--server", server.URL, "--asset", "sol", "--json", "test-wallet"})
 	
 	w.Close()
 	os.Stdout = oldStdout
@@ -600,7 +600,7 @@ func TestWalletRemoveCommand(t *testing.T) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		if r.URL.Path != "/api/v1/wallets/test-wallet" {
+		if r.URL.Path != "/api/v1/wallet-assets/test-wallet" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -620,7 +620,7 @@ func TestWalletRemoveCommand(t *testing.T) {
 		},
 	}
 
-	err := app.Run([]string{"test", "wallet", "remove", "--server", server.URL, "test-wallet"})
+	err := app.Run([]string{"test", "wallet", "remove", "--server", server.URL, "--asset", "sol", "test-wallet"})
 	
 	w.Close()
 	os.Stdout = oldStdout
@@ -633,7 +633,7 @@ func TestWalletRemoveCommand(t *testing.T) {
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	if !bytes.Contains([]byte(output), []byte("✓ Wallet unregistered successfully")) {
+	if !bytes.Contains([]byte(output), []byte("✓ Wallet asset unregistered successfully")) {
 		t.Errorf("expected success message, got: %s", output)
 	}
 	if !bytes.Contains([]byte(output), []byte("test-wallet")) {
@@ -670,7 +670,7 @@ func TestWalletRemoveCommand_Aliases(t *testing.T) {
 				},
 			}
 
-			err := app.Run([]string{"test", "wallet", alias, "--server", server.URL, "test-wallet"})
+			err := app.Run([]string{"test", "wallet", alias, "--server", server.URL, "--asset", "sol", "test-wallet"})
 			
 			if err != nil {
 				t.Errorf("alias %s failed: %v", alias, err)

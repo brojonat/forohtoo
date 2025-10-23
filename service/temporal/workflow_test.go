@@ -24,7 +24,11 @@ func TestPollWalletWorkflow(t *testing.T) {
 		{
 			name: "successful workflow with transactions",
 			input: PollWalletInput{
-				Address: testWallet,
+				WalletAddress: testWallet,
+				Network:       "mainnet",
+				AssetType:     "sol",
+				TokenMint:     "",
+				PollAddress:   testWallet,
 			},
 			mockActivities: func(pollMock, writeMock *testsuite.MockCallWrapper, getSigsMock *testsuite.MockCallWrapper) {
 				// Mock GetExistingTransactionSignatures activity
@@ -75,7 +79,11 @@ func TestPollWalletWorkflow(t *testing.T) {
 		{
 			name: "successful workflow with no transactions",
 			input: PollWalletInput{
-				Address: testWallet,
+				WalletAddress: testWallet,
+				Network:       "mainnet",
+				AssetType:     "sol",
+				TokenMint:     "",
+				PollAddress:   testWallet,
 			},
 			mockActivities: func(pollMock, writeMock *testsuite.MockCallWrapper, getSigsMock *testsuite.MockCallWrapper) {
 				// Mock GetExistingTransactionSignatures activity
@@ -106,7 +114,11 @@ func TestPollWalletWorkflow(t *testing.T) {
 		{
 			name: "poll solana fails",
 			input: PollWalletInput{
-				Address: testWallet,
+				WalletAddress: testWallet,
+				Network:       "mainnet",
+				AssetType:     "sol",
+				TokenMint:     "",
+				PollAddress:   testWallet,
 			},
 			mockActivities: func(pollMock, writeMock *testsuite.MockCallWrapper, getSigsMock *testsuite.MockCallWrapper) {
 				// Mock GetExistingTransactionSignatures activity
@@ -129,7 +141,11 @@ func TestPollWalletWorkflow(t *testing.T) {
 		{
 			name: "write transactions fails",
 			input: PollWalletInput{
-				Address: testWallet,
+				WalletAddress: testWallet,
+				Network:       "mainnet",
+				AssetType:     "sol",
+				TokenMint:     "",
+				PollAddress:   testWallet,
 			},
 			mockActivities: func(pollMock, writeMock *testsuite.MockCallWrapper, getSigsMock *testsuite.MockCallWrapper) {
 				// Mock GetExistingTransactionSignatures activity
@@ -254,7 +270,13 @@ func TestPollWalletWorkflow_ActivityRetries(t *testing.T) {
 		}, nil)
 
 	// Execute workflow
-	env.ExecuteWorkflow(PollWalletWorkflow, PollWalletInput{Address: testWallet})
+	env.ExecuteWorkflow(PollWalletWorkflow, PollWalletInput{
+		WalletAddress: testWallet,
+		Network:       "mainnet",
+		AssetType:     "sol",
+		TokenMint:     "",
+		PollAddress:   testWallet,
+	})
 
 	// Workflow should succeed after retries
 	assert.NoError(t, env.GetWorkflowError())
@@ -297,7 +319,13 @@ func TestPollWalletWorkflow_WorkflowTimer(t *testing.T) {
 		}, nil)
 
 	// Execute workflow
-	env.ExecuteWorkflow(PollWalletWorkflow, PollWalletInput{Address: testWallet})
+	env.ExecuteWorkflow(PollWalletWorkflow, PollWalletInput{
+		WalletAddress: testWallet,
+		Network:       "mainnet",
+		AssetType:     "sol",
+		TokenMint:     "",
+		PollAddress:   testWallet,
+	})
 
 	// Check workflow completed quickly (activities have timeouts but no explicit sleep)
 	endTime := env.Now()

@@ -22,8 +22,8 @@ func NewMockScheduler() *MockScheduler {
 	}
 }
 
-// CreateWalletSchedule records that a schedule was created.
-func (m *MockScheduler) CreateWalletSchedule(ctx context.Context, address string, network string, interval time.Duration) error {
+// CreateWalletAssetSchedule records that a schedule was created.
+func (m *MockScheduler) CreateWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string, ata *string, interval time.Duration) error {
 	if m.createErr != nil {
 		return m.createErr
 	}
@@ -31,13 +31,13 @@ func (m *MockScheduler) CreateWalletSchedule(ctx context.Context, address string
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	id := scheduleID(address, network)
+	id := scheduleID(address, network, assetType, tokenMint)
 	m.schedules[id] = interval
 	return nil
 }
 
-// DeleteWalletSchedule records that a schedule was deleted.
-func (m *MockScheduler) DeleteWalletSchedule(ctx context.Context, address string, network string) error {
+// DeleteWalletAssetSchedule records that a schedule was deleted.
+func (m *MockScheduler) DeleteWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string) error {
 	if m.deleteErr != nil {
 		return m.deleteErr
 	}
@@ -45,7 +45,7 @@ func (m *MockScheduler) DeleteWalletSchedule(ctx context.Context, address string
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	id := scheduleID(address, network)
+	id := scheduleID(address, network, assetType, tokenMint)
 	if _, exists := m.schedules[id]; !exists {
 		return fmt.Errorf("schedule %q not found", id)
 	}
@@ -54,32 +54,32 @@ func (m *MockScheduler) DeleteWalletSchedule(ctx context.Context, address string
 	return nil
 }
 
-// SetCreateError makes CreateWalletSchedule return an error.
+// SetCreateError makes CreateWalletAssetSchedule return an error.
 func (m *MockScheduler) SetCreateError(err error) {
 	m.createErr = err
 }
 
-// SetDeleteError makes DeleteWalletSchedule return an error.
+// SetDeleteError makes DeleteWalletAssetSchedule return an error.
 func (m *MockScheduler) SetDeleteError(err error) {
 	m.deleteErr = err
 }
 
-// ScheduleExists checks if a schedule exists for a wallet.
-func (m *MockScheduler) ScheduleExists(address string, network string) bool {
+// ScheduleExists checks if a schedule exists for a wallet asset.
+func (m *MockScheduler) ScheduleExists(address string, network string, assetType string, tokenMint string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	id := scheduleID(address, network)
+	id := scheduleID(address, network, assetType, tokenMint)
 	_, exists := m.schedules[id]
 	return exists
 }
 
-// GetScheduleInterval returns the interval for a wallet's schedule.
-func (m *MockScheduler) GetScheduleInterval(address string, network string) (time.Duration, bool) {
+// GetScheduleInterval returns the interval for a wallet asset's schedule.
+func (m *MockScheduler) GetScheduleInterval(address string, network string, assetType string, tokenMint string) (time.Duration, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	id := scheduleID(address, network)
+	id := scheduleID(address, network, assetType, tokenMint)
 	interval, exists := m.schedules[id]
 	return interval, exists
 }

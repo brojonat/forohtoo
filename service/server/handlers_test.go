@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
 	"github.com/brojonat/forohtoo/service/temporal"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,7 +27,7 @@ func setupTestStore(t *testing.T) *db.Store {
 
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5433/forohtoo_test?sslmode=disable"
+		dbURL = "postgres://postgres:postgres@localhost:15433/forohtoo_test?sslmode=disable"
 	}
 
 	pool, err := pgxpool.New(context.Background(), dbURL)
@@ -46,7 +47,11 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 	store := setupTestStore(t)
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	scheduler := temporal.NewMockScheduler()
-	handler := handleRegisterWalletWithScheduler(store, scheduler, logger)
+	cfg := &config.Config{
+		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+	}
+	handler := handleRegisterWalletWithScheduler(store, scheduler, cfg, logger)
 
 	tests := []struct {
 		name           string
@@ -120,7 +125,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "missing poll_interval",
-			body:           `{"address":"TestWa11et1111111111111111111111111111"}`,
+			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"}}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "poll_interval")
@@ -128,7 +133,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "invalid poll_interval format",
-			body:           `{"address":"TestWa11et1111111111111111111111111111","poll_interval":"not-a-duration"}`,
+			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"not-a-duration"}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "invalid poll_interval")
@@ -136,7 +141,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "negative poll_interval",
-			body:           `{"address":"TestWa11et1111111111111111111111111111","poll_interval":"-30s"}`,
+			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"-30s"}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "poll_interval must be positive")
@@ -144,7 +149,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "poll_interval too short",
-			body:           `{"address":"TestWa11et1111111111111111111111111111","poll_interval":"1ns"}`,
+			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"1ns"}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "poll_interval must be at least")
@@ -152,7 +157,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "poll_interval too long",
-			body:           `{"address":"TestWa11et1111111111111111111111111111","poll_interval":"999999h"}`,
+			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"999999h"}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "poll_interval cannot exceed")
@@ -160,7 +165,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "extra unexpected fields should be ignored",
-			body:           `{"address":"TestWa11et1111111111111111111111111111","network":"mainnet","poll_interval":"30s","malicious":"data","admin":true}`,
+			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"30s","malicious":"data","admin":true}`,
 			expectedStatus: http.StatusCreated,
 			checkError:     nil,
 		},
@@ -193,7 +198,15 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 					if net, ok := resp["network"].(string); ok {
 						network = net
 					}
-					store.DeleteWallet(context.Background(), addr, network)
+					assetType := ""
+					if at, ok := resp["asset_type"].(string); ok {
+						assetType = at
+					}
+					tokenMint := ""
+					if tm, ok := resp["token_mint"].(string); ok {
+						tokenMint = tm
+					}
+					store.DeleteWallet(context.Background(), addr, network, assetType, tokenMint)
 				}
 			}
 		})
@@ -204,24 +217,28 @@ func TestRegisterWallet_ValidInput(t *testing.T) {
 	store := setupTestStore(t)
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	scheduler := temporal.NewMockScheduler()
-	handler := handleRegisterWalletWithScheduler(store, scheduler, logger)
+	cfg := &config.Config{
+		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+	}
+	handler := handleRegisterWalletWithScheduler(store, scheduler, cfg, logger)
 
 	tests := []struct {
 		name     string
 		address  string
 		interval string
 	}{
-		{"normal address", "TestWa11et222222222222222222222222222", "30s"},
-		{"address with mix", "Va1idWa11et33333333333333333333333333", "1m"},
-		{"max length address", strings.Repeat("A", 44), "30s"}, // Solana addresses are 44 chars
-		{"minimum poll interval", "MinPa11Wa11et44444444444444444444444", "10s"},
-		{"various durations", "FiveMinWa11et55555555555555555555555", "5m"},
+		{"normal address", "SysvarRent111111111111111111111111111111111", "30s"},
+		{"address with mix", "SysvarC1ock11111111111111111111111111111111", "1m"},
+		{"max length address", "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "30s"}, // Valid Solana address
+		{"minimum poll interval", "Config1111111111111111111111111111111111111", "10s"},
+		{"various durations", "Stake11111111111111111111111111111111111111", "5m"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body := `{"address":"` + tt.address + `","network":"mainnet","poll_interval":"` + tt.interval + `"}`
-			req := httptest.NewRequest("POST", "/api/v1/wallets", strings.NewReader(body))
+			body := `{"address":"` + tt.address + `","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"` + tt.interval + `"}`
+			req := httptest.NewRequest("POST", "/api/v1/wallet-assets", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 
 			w := httptest.NewRecorder()
@@ -230,7 +247,7 @@ func TestRegisterWallet_ValidInput(t *testing.T) {
 			assert.Equal(t, http.StatusCreated, w.Code)
 
 			// Clean up
-			store.DeleteWallet(context.Background(), tt.address, "mainnet")
+			store.DeleteWallet(context.Background(), tt.address, "mainnet", "spl-token", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 		})
 	}
 }
