@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
 	"github.com/brojonat/forohtoo/service/metrics"
 	"github.com/brojonat/forohtoo/service/temporal"
@@ -16,6 +17,7 @@ import (
 // Server represents the HTTP server for the wallet service.
 type Server struct {
 	addr         string
+	cfg          *config.Config
 	store        *db.Store
 	scheduler    temporal.Scheduler
 	ssePublisher *SSEPublisher
@@ -30,9 +32,10 @@ type Server struct {
 // The ssePublisher is optional - if nil, SSE endpoints won't be available.
 // The renderer is optional - if nil, HTML endpoints won't be available.
 // The metrics is optional - if nil, metrics endpoints won't be available.
-func New(addr string, store *db.Store, scheduler temporal.Scheduler, ssePublisher *SSEPublisher, m *metrics.Metrics, logger *slog.Logger) *Server {
+func New(addr string, cfg *config.Config, store *db.Store, scheduler temporal.Scheduler, ssePublisher *SSEPublisher, m *metrics.Metrics, logger *slog.Logger) *Server {
 	return &Server{
 		addr:         addr,
+		cfg:          cfg,
 		store:        store,
 		scheduler:    scheduler,
 		ssePublisher: ssePublisher,
@@ -56,9 +59,9 @@ func (s *Server) WithTemplates() error {
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
-	// Register routes
-	mux.Handle("POST /api/v1/wallets", handleRegisterWalletWithScheduler(s.store, s.scheduler, s.logger))
-	mux.Handle("DELETE /api/v1/wallets/{address}", handleUnregisterWalletWithScheduler(s.store, s.scheduler, s.logger))
+	// Register asset-aware routes
+	mux.Handle("POST /api/v1/wallet-assets", handleRegisterWalletWithScheduler(s.store, s.scheduler, s.cfg, s.logger))
+	mux.Handle("DELETE /api/v1/wallet-assets/{address}", handleUnregisterWalletWithScheduler(s.store, s.scheduler, s.logger))
 	mux.Handle("GET /api/v1/wallets/{address}", handleGetWallet(s.store, s.logger))
 	mux.Handle("GET /api/v1/wallets", handleListWallets(s.store, s.logger))
 	mux.Handle("GET /api/v1/transactions", handleListTransactions(s.store, s.logger))

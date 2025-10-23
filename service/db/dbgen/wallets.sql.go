@@ -15,25 +15,34 @@ const createWallet = `-- name: CreateWallet :one
 INSERT INTO wallets (
     address,
     network,
+    asset_type,
+    token_mint,
+    associated_token_address,
     poll_interval,
     status
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3, $4, $5, $6, $7
 )
-RETURNING address, poll_interval, last_poll_time, status, created_at, updated_at, network
+RETURNING address, poll_interval, last_poll_time, status, created_at, updated_at, network, asset_type, token_mint, associated_token_address
 `
 
 type CreateWalletParams struct {
-	Address      string          `json:"address"`
-	Network      string          `json:"network"`
-	PollInterval pgtype.Interval `json:"poll_interval"`
-	Status       string          `json:"status"`
+	Address                string          `json:"address"`
+	Network                string          `json:"network"`
+	AssetType              string          `json:"asset_type"`
+	TokenMint              string          `json:"token_mint"`
+	AssociatedTokenAddress pgtype.Text     `json:"associated_token_address"`
+	PollInterval           pgtype.Interval `json:"poll_interval"`
+	Status                 string          `json:"status"`
 }
 
 func (q *Queries) CreateWallet(ctx context.Context, arg CreateWalletParams) (Wallet, error) {
 	row := q.db.QueryRow(ctx, createWallet,
 		arg.Address,
 		arg.Network,
+		arg.AssetType,
+		arg.TokenMint,
+		arg.AssociatedTokenAddress,
 		arg.PollInterval,
 		arg.Status,
 	)
@@ -46,37 +55,54 @@ func (q *Queries) CreateWallet(ctx context.Context, arg CreateWalletParams) (Wal
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Network,
+		&i.AssetType,
+		&i.TokenMint,
+		&i.AssociatedTokenAddress,
 	)
 	return i, err
 }
 
 const deleteWallet = `-- name: DeleteWallet :exec
 DELETE FROM wallets
-WHERE address = $1 AND network = $2
+WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4
 `
 
 type DeleteWalletParams struct {
-	Address string `json:"address"`
-	Network string `json:"network"`
+	Address   string `json:"address"`
+	Network   string `json:"network"`
+	AssetType string `json:"asset_type"`
+	TokenMint string `json:"token_mint"`
 }
 
 func (q *Queries) DeleteWallet(ctx context.Context, arg DeleteWalletParams) error {
-	_, err := q.db.Exec(ctx, deleteWallet, arg.Address, arg.Network)
+	_, err := q.db.Exec(ctx, deleteWallet,
+		arg.Address,
+		arg.Network,
+		arg.AssetType,
+		arg.TokenMint,
+	)
 	return err
 }
 
 const getWallet = `-- name: GetWallet :one
-SELECT address, poll_interval, last_poll_time, status, created_at, updated_at, network FROM wallets
-WHERE address = $1 AND network = $2
+SELECT address, poll_interval, last_poll_time, status, created_at, updated_at, network, asset_type, token_mint, associated_token_address FROM wallets
+WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4
 `
 
 type GetWalletParams struct {
-	Address string `json:"address"`
-	Network string `json:"network"`
+	Address   string `json:"address"`
+	Network   string `json:"network"`
+	AssetType string `json:"asset_type"`
+	TokenMint string `json:"token_mint"`
 }
 
 func (q *Queries) GetWallet(ctx context.Context, arg GetWalletParams) (Wallet, error) {
-	row := q.db.QueryRow(ctx, getWallet, arg.Address, arg.Network)
+	row := q.db.QueryRow(ctx, getWallet,
+		arg.Address,
+		arg.Network,
+		arg.AssetType,
+		arg.TokenMint,
+	)
 	var i Wallet
 	err := row.Scan(
 		&i.Address,
@@ -86,12 +112,15 @@ func (q *Queries) GetWallet(ctx context.Context, arg GetWalletParams) (Wallet, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Network,
+		&i.AssetType,
+		&i.TokenMint,
+		&i.AssociatedTokenAddress,
 	)
 	return i, err
 }
 
 const listActiveWallets = `-- name: ListActiveWallets :many
-SELECT address, poll_interval, last_poll_time, status, created_at, updated_at, network FROM wallets
+SELECT address, poll_interval, last_poll_time, status, created_at, updated_at, network, asset_type, token_mint, associated_token_address FROM wallets
 WHERE status = 'active'
 ORDER BY last_poll_time ASC NULLS FIRST
 `
@@ -113,6 +142,51 @@ func (q *Queries) ListActiveWallets(ctx context.Context) ([]Wallet, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Network,
+			&i.AssetType,
+			&i.TokenMint,
+			&i.AssociatedTokenAddress,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWalletAssets = `-- name: ListWalletAssets :many
+SELECT address, poll_interval, last_poll_time, status, created_at, updated_at, network, asset_type, token_mint, associated_token_address FROM wallets
+WHERE address = $1 AND network = $2
+ORDER BY asset_type, token_mint
+`
+
+type ListWalletAssetsParams struct {
+	Address string `json:"address"`
+	Network string `json:"network"`
+}
+
+func (q *Queries) ListWalletAssets(ctx context.Context, arg ListWalletAssetsParams) ([]Wallet, error) {
+	rows, err := q.db.Query(ctx, listWalletAssets, arg.Address, arg.Network)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Wallet
+	for rows.Next() {
+		var i Wallet
+		if err := rows.Scan(
+			&i.Address,
+			&i.PollInterval,
+			&i.LastPollTime,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Network,
+			&i.AssetType,
+			&i.TokenMint,
+			&i.AssociatedTokenAddress,
 		); err != nil {
 			return nil, err
 		}
@@ -125,7 +199,7 @@ func (q *Queries) ListActiveWallets(ctx context.Context) ([]Wallet, error) {
 }
 
 const listWallets = `-- name: ListWallets :many
-SELECT address, poll_interval, last_poll_time, status, created_at, updated_at, network FROM wallets
+SELECT address, poll_interval, last_poll_time, status, created_at, updated_at, network, asset_type, token_mint, associated_token_address FROM wallets
 ORDER BY created_at DESC
 `
 
@@ -146,6 +220,46 @@ func (q *Queries) ListWallets(ctx context.Context) ([]Wallet, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Network,
+			&i.AssetType,
+			&i.TokenMint,
+			&i.AssociatedTokenAddress,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWalletsByAddress = `-- name: ListWalletsByAddress :many
+SELECT address, poll_interval, last_poll_time, status, created_at, updated_at, network, asset_type, token_mint, associated_token_address FROM wallets
+WHERE address = $1
+ORDER BY network, asset_type, token_mint
+`
+
+func (q *Queries) ListWalletsByAddress(ctx context.Context, address string) ([]Wallet, error) {
+	rows, err := q.db.Query(ctx, listWalletsByAddress, address)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Wallet
+	for rows.Next() {
+		var i Wallet
+		if err := rows.Scan(
+			&i.Address,
+			&i.PollInterval,
+			&i.LastPollTime,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Network,
+			&i.AssetType,
+			&i.TokenMint,
+			&i.AssociatedTokenAddress,
 		); err != nil {
 			return nil, err
 		}
@@ -160,20 +274,28 @@ func (q *Queries) ListWallets(ctx context.Context) ([]Wallet, error) {
 const updateWalletPollInterval = `-- name: UpdateWalletPollInterval :one
 UPDATE wallets
 SET
-    poll_interval = $3,
+    poll_interval = $5,
     updated_at = NOW()
-WHERE address = $1 AND network = $2
-RETURNING address, poll_interval, last_poll_time, status, created_at, updated_at, network
+WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4
+RETURNING address, poll_interval, last_poll_time, status, created_at, updated_at, network, asset_type, token_mint, associated_token_address
 `
 
 type UpdateWalletPollIntervalParams struct {
 	Address      string          `json:"address"`
 	Network      string          `json:"network"`
+	AssetType    string          `json:"asset_type"`
+	TokenMint    string          `json:"token_mint"`
 	PollInterval pgtype.Interval `json:"poll_interval"`
 }
 
 func (q *Queries) UpdateWalletPollInterval(ctx context.Context, arg UpdateWalletPollIntervalParams) (Wallet, error) {
-	row := q.db.QueryRow(ctx, updateWalletPollInterval, arg.Address, arg.Network, arg.PollInterval)
+	row := q.db.QueryRow(ctx, updateWalletPollInterval,
+		arg.Address,
+		arg.Network,
+		arg.AssetType,
+		arg.TokenMint,
+		arg.PollInterval,
+	)
 	var i Wallet
 	err := row.Scan(
 		&i.Address,
@@ -183,6 +305,9 @@ func (q *Queries) UpdateWalletPollInterval(ctx context.Context, arg UpdateWallet
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Network,
+		&i.AssetType,
+		&i.TokenMint,
+		&i.AssociatedTokenAddress,
 	)
 	return i, err
 }
@@ -190,20 +315,28 @@ func (q *Queries) UpdateWalletPollInterval(ctx context.Context, arg UpdateWallet
 const updateWalletPollTime = `-- name: UpdateWalletPollTime :one
 UPDATE wallets
 SET
-    last_poll_time = $3,
+    last_poll_time = $5,
     updated_at = NOW()
-WHERE address = $1 AND network = $2
-RETURNING address, poll_interval, last_poll_time, status, created_at, updated_at, network
+WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4
+RETURNING address, poll_interval, last_poll_time, status, created_at, updated_at, network, asset_type, token_mint, associated_token_address
 `
 
 type UpdateWalletPollTimeParams struct {
 	Address      string             `json:"address"`
 	Network      string             `json:"network"`
+	AssetType    string             `json:"asset_type"`
+	TokenMint    string             `json:"token_mint"`
 	LastPollTime pgtype.Timestamptz `json:"last_poll_time"`
 }
 
 func (q *Queries) UpdateWalletPollTime(ctx context.Context, arg UpdateWalletPollTimeParams) (Wallet, error) {
-	row := q.db.QueryRow(ctx, updateWalletPollTime, arg.Address, arg.Network, arg.LastPollTime)
+	row := q.db.QueryRow(ctx, updateWalletPollTime,
+		arg.Address,
+		arg.Network,
+		arg.AssetType,
+		arg.TokenMint,
+		arg.LastPollTime,
+	)
 	var i Wallet
 	err := row.Scan(
 		&i.Address,
@@ -213,6 +346,9 @@ func (q *Queries) UpdateWalletPollTime(ctx context.Context, arg UpdateWalletPoll
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Network,
+		&i.AssetType,
+		&i.TokenMint,
+		&i.AssociatedTokenAddress,
 	)
 	return i, err
 }
@@ -220,20 +356,28 @@ func (q *Queries) UpdateWalletPollTime(ctx context.Context, arg UpdateWalletPoll
 const updateWalletStatus = `-- name: UpdateWalletStatus :one
 UPDATE wallets
 SET
-    status = $3,
+    status = $5,
     updated_at = NOW()
-WHERE address = $1 AND network = $2
-RETURNING address, poll_interval, last_poll_time, status, created_at, updated_at, network
+WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4
+RETURNING address, poll_interval, last_poll_time, status, created_at, updated_at, network, asset_type, token_mint, associated_token_address
 `
 
 type UpdateWalletStatusParams struct {
-	Address string `json:"address"`
-	Network string `json:"network"`
-	Status  string `json:"status"`
+	Address   string `json:"address"`
+	Network   string `json:"network"`
+	AssetType string `json:"asset_type"`
+	TokenMint string `json:"token_mint"`
+	Status    string `json:"status"`
 }
 
 func (q *Queries) UpdateWalletStatus(ctx context.Context, arg UpdateWalletStatusParams) (Wallet, error) {
-	row := q.db.QueryRow(ctx, updateWalletStatus, arg.Address, arg.Network, arg.Status)
+	row := q.db.QueryRow(ctx, updateWalletStatus,
+		arg.Address,
+		arg.Network,
+		arg.AssetType,
+		arg.TokenMint,
+		arg.Status,
+	)
 	var i Wallet
 	err := row.Scan(
 		&i.Address,
@@ -243,21 +387,31 @@ func (q *Queries) UpdateWalletStatus(ctx context.Context, arg UpdateWalletStatus
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Network,
+		&i.AssetType,
+		&i.TokenMint,
+		&i.AssociatedTokenAddress,
 	)
 	return i, err
 }
 
 const walletExists = `-- name: WalletExists :one
-SELECT EXISTS(SELECT 1 FROM wallets WHERE address = $1 AND network = $2)
+SELECT EXISTS(SELECT 1 FROM wallets WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4)
 `
 
 type WalletExistsParams struct {
-	Address string `json:"address"`
-	Network string `json:"network"`
+	Address   string `json:"address"`
+	Network   string `json:"network"`
+	AssetType string `json:"asset_type"`
+	TokenMint string `json:"token_mint"`
 }
 
 func (q *Queries) WalletExists(ctx context.Context, arg WalletExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, walletExists, arg.Address, arg.Network)
+	row := q.db.QueryRow(ctx, walletExists,
+		arg.Address,
+		arg.Network,
+		arg.AssetType,
+		arg.TokenMint,
+	)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

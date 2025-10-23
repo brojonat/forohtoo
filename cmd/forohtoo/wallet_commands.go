@@ -32,7 +32,7 @@ func walletAddCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "add",
 		Aliases:   []string{"register"},
-		Usage:     "Register a wallet for monitoring",
+		Usage:     "Register a wallet asset for monitoring",
 		ArgsUsage: "WALLET_ADDRESS",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -47,6 +47,15 @@ func walletAddCommand() *cli.Command {
 				Aliases: []string{"n"},
 				Value:   "mainnet",
 				Usage:   "Network to monitor (mainnet or devnet)",
+			},
+			&cli.StringFlag{
+				Name:  "asset",
+				Value: "spl-token",
+				Usage: "Asset type: 'sol' for native SOL or 'spl-token' for SPL tokens (default: spl-token)",
+			},
+			&cli.StringFlag{
+				Name:  "token-mint",
+				Usage: "Token mint address (required when --asset=spl-token, e.g., USDC mint). Leave empty for SOL.",
 			},
 			&cli.DurationFlag{
 				Name:    "poll-interval",
@@ -68,6 +77,8 @@ func walletAddCommand() *cli.Command {
 			address := c.Args().Get(0)
 			serverURL := c.String("server")
 			network := c.String("network")
+			assetType := c.String("asset")
+			tokenMint := c.String("token-mint")
 			pollInterval := c.Duration("poll-interval")
 			jsonOutput := c.Bool("json")
 
@@ -76,26 +87,49 @@ func walletAddCommand() *cli.Command {
 				return fmt.Errorf("invalid network: must be 'mainnet' or 'devnet'")
 			}
 
+			// Validate asset type
+			if assetType != "sol" && assetType != "spl-token" {
+				return fmt.Errorf("invalid asset type: must be 'sol' or 'spl-token'")
+			}
+
+			// For SPL tokens, token-mint is required
+			if assetType == "spl-token" && tokenMint == "" {
+				return fmt.Errorf("--token-mint is required when --asset=spl-token")
+			}
+
+			// For SOL, token-mint should be empty
+			if assetType == "sol" && tokenMint != "" {
+				return fmt.Errorf("--token-mint should not be specified when --asset=sol")
+			}
+
 			logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 				Level: slog.LevelError,
 			}))
 
 			cl := client.NewClient(serverURL, nil, logger)
 
-			if err := cl.Register(context.Background(), address, network, pollInterval); err != nil {
-				return fmt.Errorf("failed to register wallet: %w", err)
+			if err := cl.RegisterAsset(context.Background(), address, network, assetType, tokenMint, pollInterval); err != nil {
+				return fmt.Errorf("failed to register wallet asset: %w", err)
 			}
 
 			if jsonOutput {
 				data, _ := json.Marshal(map[string]interface{}{
 					"address":       address,
+					"network":       network,
+					"asset_type":    assetType,
+					"token_mint":    tokenMint,
 					"poll_interval": pollInterval.String(),
 					"status":        "registered",
 				})
 				fmt.Println(string(data))
 			} else {
-				fmt.Printf("✓ Wallet registered successfully\n")
+				fmt.Printf("✓ Wallet asset registered successfully\n")
 				fmt.Printf("  Address: %s\n", address)
+				fmt.Printf("  Network: %s\n", network)
+				fmt.Printf("  Asset Type: %s\n", assetType)
+				if tokenMint != "" {
+					fmt.Printf("  Token Mint: %s\n", tokenMint)
+				}
 				fmt.Printf("  Poll Interval: %s\n", pollInterval)
 			}
 
@@ -108,7 +142,7 @@ func walletRemoveCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "remove",
 		Aliases:   []string{"rm", "delete", "unregister"},
-		Usage:     "Unregister a wallet from monitoring",
+		Usage:     "Unregister a wallet asset from monitoring",
 		ArgsUsage: "WALLET_ADDRESS",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -124,6 +158,15 @@ func walletRemoveCommand() *cli.Command {
 				Value:   "mainnet",
 				Usage:   "Network (mainnet or devnet)",
 			},
+			&cli.StringFlag{
+				Name:  "asset",
+				Value: "spl-token",
+				Usage: "Asset type: 'sol' or 'spl-token' (default: spl-token)",
+			},
+			&cli.StringFlag{
+				Name:  "token-mint",
+				Usage: "Token mint address (required when --asset=spl-token)",
+			},
 			&cli.BoolFlag{
 				Name:    "json",
 				Aliases: []string{"j"},
@@ -138,11 +181,23 @@ func walletRemoveCommand() *cli.Command {
 			address := c.Args().Get(0)
 			serverURL := c.String("server")
 			network := c.String("network")
+			assetType := c.String("asset")
+			tokenMint := c.String("token-mint")
 			jsonOutput := c.Bool("json")
 
 			// Validate network
 			if network != "mainnet" && network != "devnet" {
 				return fmt.Errorf("invalid network: must be 'mainnet' or 'devnet'")
+			}
+
+			// Validate asset type
+			if assetType != "sol" && assetType != "spl-token" {
+				return fmt.Errorf("invalid asset type: must be 'sol' or 'spl-token'")
+			}
+
+			// For SPL tokens, token-mint is required
+			if assetType == "spl-token" && tokenMint == "" {
+				return fmt.Errorf("--token-mint is required when --asset=spl-token")
 			}
 
 			logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
@@ -151,21 +206,27 @@ func walletRemoveCommand() *cli.Command {
 
 			cl := client.NewClient(serverURL, nil, logger)
 
-			if err := cl.Unregister(context.Background(), address, network); err != nil {
-				return fmt.Errorf("failed to unregister wallet: %w", err)
+			if err := cl.UnregisterAsset(context.Background(), address, network, assetType, tokenMint); err != nil {
+				return fmt.Errorf("failed to unregister wallet asset: %w", err)
 			}
 
 			if jsonOutput {
 				data, _ := json.Marshal(map[string]interface{}{
-					"address": address,
-					"network": network,
-					"status":  "unregistered",
+					"address":    address,
+					"network":    network,
+					"asset_type": assetType,
+					"token_mint": tokenMint,
+					"status":     "unregistered",
 				})
 				fmt.Println(string(data))
 			} else {
-				fmt.Printf("✓ Wallet unregistered successfully\n")
+				fmt.Printf("✓ Wallet asset unregistered successfully\n")
 				fmt.Printf("  Address: %s\n", address)
 				fmt.Printf("  Network: %s\n", network)
+				fmt.Printf("  Asset Type: %s\n", assetType)
+				if tokenMint != "" {
+					fmt.Printf("  Token Mint: %s\n", tokenMint)
+				}
 			}
 
 			return nil

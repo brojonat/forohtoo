@@ -234,32 +234,41 @@ func (s *Store) ListTransactionsByTimeRange(ctx context.Context, start time.Time
 	return transactions, nil
 }
 
-// Wallet represents a registered wallet that the server monitors.
+// Wallet represents a registered wallet+asset combination that the server monitors.
 type Wallet struct {
-	Address      string
-	Network      string // "mainnet" or "devnet"
-	PollInterval time.Duration
-	LastPollTime *time.Time
-	Status       string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	Address                string
+	Network                string  // "mainnet" or "devnet"
+	AssetType              string  // "sol" or "spl-token"
+	TokenMint              string  // empty for SOL, mint address for SPL tokens
+	AssociatedTokenAddress *string // nil for SOL, ATA for SPL tokens
+	PollInterval           time.Duration
+	LastPollTime           *time.Time
+	Status                 string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
-// CreateWalletParams contains the parameters for registering a wallet.
+// CreateWalletParams contains the parameters for registering a wallet asset.
 type CreateWalletParams struct {
-	Address      string
-	Network      string
-	PollInterval time.Duration
-	Status       string
+	Address                string
+	Network                string
+	AssetType              string
+	TokenMint              string
+	AssociatedTokenAddress *string
+	PollInterval           time.Duration
+	Status                 string
 }
 
-// CreateWallet registers a new wallet for monitoring.
+// CreateWallet registers a new wallet+asset for monitoring.
 func (s *Store) CreateWallet(ctx context.Context, params CreateWalletParams) (*Wallet, error) {
 	sqlcParams := dbgen.CreateWalletParams{
-		Address:      params.Address,
-		Network:      params.Network,
-		PollInterval: pgIntervalFromDuration(params.PollInterval),
-		Status:       params.Status,
+		Address:                params.Address,
+		Network:                params.Network,
+		AssetType:              params.AssetType,
+		TokenMint:              params.TokenMint,
+		AssociatedTokenAddress: pgtextFromStringPtr(params.AssociatedTokenAddress),
+		PollInterval:           pgIntervalFromDuration(params.PollInterval),
+		Status:                 params.Status,
 	}
 
 	result, err := s.q.CreateWallet(ctx, sqlcParams)
@@ -270,11 +279,13 @@ func (s *Store) CreateWallet(ctx context.Context, params CreateWalletParams) (*W
 	return dbWalletToDomain(&result), nil
 }
 
-// GetWallet retrieves a wallet by its address and network.
-func (s *Store) GetWallet(ctx context.Context, address string, network string) (*Wallet, error) {
+// GetWallet retrieves a wallet+asset by its address, network, asset type, and token mint.
+func (s *Store) GetWallet(ctx context.Context, address string, network string, assetType string, tokenMint string) (*Wallet, error) {
 	params := dbgen.GetWalletParams{
-		Address: address,
-		Network: network,
+		Address:   address,
+		Network:   network,
+		AssetType: assetType,
+		TokenMint: tokenMint,
 	}
 	result, err := s.q.GetWallet(ctx, params)
 	if err != nil {
@@ -314,11 +325,13 @@ func (s *Store) ListActiveWallets(ctx context.Context) ([]*Wallet, error) {
 	return wallets, nil
 }
 
-// UpdateWalletPollTime updates the last poll time for a wallet.
-func (s *Store) UpdateWalletPollTime(ctx context.Context, address string, network string, pollTime time.Time) (*Wallet, error) {
+// UpdateWalletPollTime updates the last poll time for a wallet+asset.
+func (s *Store) UpdateWalletPollTime(ctx context.Context, address string, network string, assetType string, tokenMint string, pollTime time.Time) (*Wallet, error) {
 	params := dbgen.UpdateWalletPollTimeParams{
 		Address:      address,
 		Network:      network,
+		AssetType:    assetType,
+		TokenMint:    tokenMint,
 		LastPollTime: pgtype.Timestamptz{Time: pollTime, Valid: true},
 	}
 
@@ -330,12 +343,14 @@ func (s *Store) UpdateWalletPollTime(ctx context.Context, address string, networ
 	return dbWalletToDomain(&result), nil
 }
 
-// UpdateWalletStatus updates the status of a wallet.
-func (s *Store) UpdateWalletStatus(ctx context.Context, address string, network string, status string) (*Wallet, error) {
+// UpdateWalletStatus updates the status of a wallet+asset.
+func (s *Store) UpdateWalletStatus(ctx context.Context, address string, network string, assetType string, tokenMint string, status string) (*Wallet, error) {
 	params := dbgen.UpdateWalletStatusParams{
-		Address: address,
-		Network: network,
-		Status:  status,
+		Address:   address,
+		Network:   network,
+		AssetType: assetType,
+		TokenMint: tokenMint,
+		Status:    status,
 	}
 
 	result, err := s.q.UpdateWalletStatus(ctx, params)
@@ -346,11 +361,13 @@ func (s *Store) UpdateWalletStatus(ctx context.Context, address string, network 
 	return dbWalletToDomain(&result), nil
 }
 
-// UpdateWalletPollInterval updates the poll interval for a wallet.
-func (s *Store) UpdateWalletPollInterval(ctx context.Context, address string, network string, pollInterval time.Duration) (*Wallet, error) {
+// UpdateWalletPollInterval updates the poll interval for a wallet+asset.
+func (s *Store) UpdateWalletPollInterval(ctx context.Context, address string, network string, assetType string, tokenMint string, pollInterval time.Duration) (*Wallet, error) {
 	params := dbgen.UpdateWalletPollIntervalParams{
 		Address:      address,
 		Network:      network,
+		AssetType:    assetType,
+		TokenMint:    tokenMint,
 		PollInterval: pgIntervalFromDuration(pollInterval),
 	}
 
@@ -362,22 +379,60 @@ func (s *Store) UpdateWalletPollInterval(ctx context.Context, address string, ne
 	return dbWalletToDomain(&result), nil
 }
 
-// DeleteWallet removes a wallet from monitoring.
-func (s *Store) DeleteWallet(ctx context.Context, address string, network string) error {
+// DeleteWallet removes a wallet+asset from monitoring.
+func (s *Store) DeleteWallet(ctx context.Context, address string, network string, assetType string, tokenMint string) error {
 	params := dbgen.DeleteWalletParams{
-		Address: address,
-		Network: network,
+		Address:   address,
+		Network:   network,
+		AssetType: assetType,
+		TokenMint: tokenMint,
 	}
 	return s.q.DeleteWallet(ctx, params)
 }
 
-// WalletExists checks if a wallet is registered.
-func (s *Store) WalletExists(ctx context.Context, address string, network string) (bool, error) {
+// WalletExists checks if a wallet+asset is registered.
+func (s *Store) WalletExists(ctx context.Context, address string, network string, assetType string, tokenMint string) (bool, error) {
 	params := dbgen.WalletExistsParams{
+		Address:   address,
+		Network:   network,
+		AssetType: assetType,
+		TokenMint: tokenMint,
+	}
+	return s.q.WalletExists(ctx, params)
+}
+
+// ListWalletsByAddress retrieves all wallet+asset combinations for a given address.
+func (s *Store) ListWalletsByAddress(ctx context.Context, address string) ([]*Wallet, error) {
+	results, err := s.q.ListWalletsByAddress(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+
+	wallets := make([]*Wallet, len(results))
+	for i, result := range results {
+		wallets[i] = dbWalletToDomain(&result)
+	}
+
+	return wallets, nil
+}
+
+// ListWalletAssets retrieves all assets registered for a specific wallet and network.
+func (s *Store) ListWalletAssets(ctx context.Context, address string, network string) ([]*Wallet, error) {
+	params := dbgen.ListWalletAssetsParams{
 		Address: address,
 		Network: network,
 	}
-	return s.q.WalletExists(ctx, params)
+	results, err := s.q.ListWalletAssets(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	wallets := make([]*Wallet, len(results))
+	for i, result := range results {
+		wallets[i] = dbWalletToDomain(&result)
+	}
+
+	return wallets, nil
 }
 
 // Helper functions to convert between sqlc types and domain types
@@ -414,13 +469,16 @@ func stringPtrFromPgtext(t pgtype.Text) *string {
 
 func dbWalletToDomain(db *dbgen.Wallet) *Wallet {
 	return &Wallet{
-		Address:      db.Address,
-		Network:      db.Network,
-		PollInterval: durationFromPgInterval(db.PollInterval),
-		LastPollTime: timePtrFromPgTimestamptz(db.LastPollTime),
-		Status:       db.Status,
-		CreatedAt:    db.CreatedAt.Time,
-		UpdatedAt:    db.UpdatedAt.Time,
+		Address:                db.Address,
+		Network:                db.Network,
+		AssetType:              db.AssetType,
+		TokenMint:              db.TokenMint,
+		AssociatedTokenAddress: stringPtrFromPgtext(db.AssociatedTokenAddress),
+		PollInterval:           durationFromPgInterval(db.PollInterval),
+		LastPollTime:           timePtrFromPgTimestamptz(db.LastPollTime),
+		Status:                 db.Status,
+		CreatedAt:              db.CreatedAt.Time,
+		UpdatedAt:              db.UpdatedAt.Time,
 	}
 }
 

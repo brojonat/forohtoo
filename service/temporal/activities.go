@@ -13,10 +13,14 @@ import (
 	solanago "github.com/gagliardetto/solana-go"
 )
 
-// PollWalletInput contains the input parameters for polling a wallet.
+// PollWalletInput contains the input parameters for polling a wallet asset.
 type PollWalletInput struct {
-	Address string `json:"address"`
-	Network string `json:"network"` // "mainnet" or "devnet"
+	WalletAddress          string  `json:"wallet_address"`           // Original wallet address
+	Network                string  `json:"network"`                  // "mainnet" or "devnet"
+	AssetType              string  `json:"asset_type"`               // "sol" or "spl-token"
+	TokenMint              string  `json:"token_mint"`               // Empty for SOL, mint address for SPL tokens
+	AssociatedTokenAddress *string `json:"associated_token_address"` // Nil for SOL, ATA for SPL tokens
+	PollAddress            string  `json:"poll_address"`             // The actual address to poll (wallet for SOL, ATA for SPL tokens)
 }
 
 // PollWalletResult contains the result of polling a wallet.

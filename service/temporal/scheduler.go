@@ -6,19 +6,23 @@ import (
 )
 
 // Scheduler manages Temporal schedules for wallet polling.
-// Each wallet gets its own schedule that triggers the PollWalletWorkflow.
+// Each wallet+asset combination gets its own schedule that triggers the PollWalletWorkflow.
 type Scheduler interface {
-	// CreateWalletSchedule creates a new schedule for polling a wallet.
+	// CreateWalletAssetSchedule creates a new schedule for polling a wallet asset.
 	// The schedule will trigger the PollWalletWorkflow on the given interval.
-	CreateWalletSchedule(ctx context.Context, address string, network string, interval time.Duration) error
+	// For SOL assets, tokenMint should be empty and ata should be nil.
+	// For SPL token assets, tokenMint and ata must be provided.
+	CreateWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string, ata *string, interval time.Duration) error
 
-	// DeleteWalletSchedule deletes the schedule for a wallet.
-	// This stops the wallet from being polled.
-	DeleteWalletSchedule(ctx context.Context, address string, network string) error
+	// DeleteWalletAssetSchedule deletes the schedule for a wallet asset.
+	// This stops the wallet asset from being polled.
+	DeleteWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string) error
 }
 
-// scheduleID returns the Temporal schedule ID for a wallet address and network.
-// Network is included to allow same wallet on different networks.
-func scheduleID(address string, network string) string {
-	return "poll-wallet-" + network + "-" + address
+// scheduleID returns the Temporal schedule ID for a wallet asset.
+// Format: poll-wallet-{network}-{address}-{assetType}-{tokenMint}
+// For SOL: poll-wallet-mainnet-ABC123...-sol-
+// For USDC: poll-wallet-mainnet-ABC123...-spl-token-EPjF...
+func scheduleID(address string, network string, assetType string, tokenMint string) string {
+	return "poll-wallet-" + network + "-" + address + "-" + assetType + "-" + tokenMint
 }

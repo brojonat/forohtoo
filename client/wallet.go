@@ -14,15 +14,18 @@ import (
 	"time"
 )
 
-// Wallet represents a registered wallet that the server is monitoring.
+// Wallet represents a registered wallet+asset that the server is monitoring.
 type Wallet struct {
-	Address      string        `json:"address"`
-	Network      string        `json:"network"` // "mainnet" or "devnet"
-	PollInterval time.Duration `json:"poll_interval"`
-	LastPollTime *time.Time    `json:"last_poll_time,omitempty"`
-	Status       string        `json:"status"` // active, paused, error
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
+	Address                string        `json:"address"`
+	Network                string        `json:"network"` // "mainnet" or "devnet"
+	AssetType              string        `json:"asset_type"`
+	TokenMint              string        `json:"token_mint"`
+	AssociatedTokenAddress *string       `json:"associated_token_address,omitempty"`
+	PollInterval           time.Duration `json:"poll_interval"`
+	LastPollTime           *time.Time    `json:"last_poll_time,omitempty"`
+	Status                 string        `json:"status"` // active, paused, error
+	CreatedAt              time.Time     `json:"created_at"`
+	UpdatedAt              time.Time     `json:"updated_at"`
 }
 
 // Client is the HTTP client for the forohtoo wallet service.
@@ -47,11 +50,15 @@ func NewClient(baseURL string, httpClient *http.Client, logger *slog.Logger) *Cl
 	}
 }
 
-// Register tells the server to start monitoring a wallet for transactions.
-func (c *Client) Register(ctx context.Context, address string, network string, pollInterval time.Duration) error {
+// RegisterAsset tells the server to start monitoring a wallet asset for transactions.
+func (c *Client) RegisterAsset(ctx context.Context, address string, network string, assetType string, tokenMint string, pollInterval time.Duration) error {
 	reqBody := map[string]interface{}{
-		"address":       address,
-		"network":       network,
+		"address": address,
+		"network": network,
+		"asset": map[string]interface{}{
+			"type":       assetType,
+			"token_mint": tokenMint,
+		},
 		"poll_interval": pollInterval.String(),
 	}
 
@@ -60,7 +67,7 @@ func (c *Client) Register(ctx context.Context, address string, network string, p
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v1/wallets", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v1/wallet-assets", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -78,16 +85,40 @@ func (c *Client) Register(ctx context.Context, address string, network string, p
 	}
 
 	if resp.StatusCode == http.StatusOK {
-		c.logger.Debug("wallet updated", "address", address, "poll_interval", pollInterval)
+		c.logger.Debug("wallet asset updated",
+			"address", address,
+			"asset_type", assetType,
+			"token_mint", tokenMint,
+			"poll_interval", pollInterval,
+		)
 	} else {
-		c.logger.Debug("wallet registered", "address", address, "poll_interval", pollInterval)
+		c.logger.Debug("wallet asset registered",
+			"address", address,
+			"asset_type", assetType,
+			"token_mint", tokenMint,
+			"poll_interval", pollInterval,
+		)
 	}
 	return nil
 }
 
-// Unregister tells the server to stop monitoring a wallet.
-func (c *Client) Unregister(ctx context.Context, address string, network string) error {
-	u := fmt.Sprintf("%s/api/v1/wallets/%s?network=%s", c.baseURL, url.PathEscape(address), url.QueryEscape(network))
+// Register tells the server to start monitoring a wallet for transactions.
+// Deprecated: Use RegisterAsset instead for explicit asset type specification.
+func (c *Client) Register(ctx context.Context, address string, network string, pollInterval time.Duration) error {
+	// Default to USDC monitoring for backward compatibility
+	// Users should migrate to RegisterAsset
+	return c.RegisterAsset(ctx, address, network, "spl-token", "", pollInterval)
+}
+
+// UnregisterAsset tells the server to stop monitoring a wallet asset.
+func (c *Client) UnregisterAsset(ctx context.Context, address string, network string, assetType string, tokenMint string) error {
+	u := fmt.Sprintf("%s/api/v1/wallet-assets/%s?network=%s&asset_type=%s&token_mint=%s",
+		c.baseURL,
+		url.PathEscape(address),
+		url.QueryEscape(network),
+		url.QueryEscape(assetType),
+		url.QueryEscape(tokenMint),
+	)
 	req, err := http.NewRequestWithContext(ctx, "DELETE", u, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -103,8 +134,19 @@ func (c *Client) Unregister(ctx context.Context, address string, network string)
 		return c.parseErrorResponse(resp)
 	}
 
-	c.logger.Debug("wallet unregistered", "address", address)
+	c.logger.Debug("wallet asset unregistered",
+		"address", address,
+		"asset_type", assetType,
+		"token_mint", tokenMint,
+	)
 	return nil
+}
+
+// Unregister tells the server to stop monitoring a wallet.
+// Deprecated: Use UnregisterAsset instead for explicit asset type specification.
+func (c *Client) Unregister(ctx context.Context, address string, network string) error {
+	// Default to removing USDC monitoring for backward compatibility
+	return c.UnregisterAsset(ctx, address, network, "spl-token", "")
 }
 
 // Get retrieves the registration details for a specific wallet.
@@ -170,16 +212,19 @@ func (c *Client) List(ctx context.Context) ([]*Wallet, error) {
 	return wallets, nil
 }
 
-// walletResponse is the API response format for a wallet.
+// walletResponse is the API response format for a wallet asset.
 // The server returns poll_interval as a string (e.g. "30s").
 type walletResponse struct {
-	Address      string     `json:"address"`
-	Network      string     `json:"network"`
-	PollInterval string     `json:"poll_interval"`
-	LastPollTime *time.Time `json:"last_poll_time,omitempty"`
-	Status       string     `json:"status"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	Address                string     `json:"address"`
+	Network                string     `json:"network"`
+	AssetType              string     `json:"asset_type"`
+	TokenMint              string     `json:"token_mint"`
+	AssociatedTokenAddress *string    `json:"associated_token_address,omitempty"`
+	PollInterval           string     `json:"poll_interval"`
+	LastPollTime           *time.Time `json:"last_poll_time,omitempty"`
+	Status                 string     `json:"status"`
+	CreatedAt              time.Time  `json:"created_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
 // responseToWallet converts an API response to a domain Wallet.
@@ -190,13 +235,16 @@ func responseToWallet(resp *walletResponse) (*Wallet, error) {
 	}
 
 	return &Wallet{
-		Address:      resp.Address,
-		Network:      resp.Network,
-		PollInterval: pollInterval,
-		LastPollTime: resp.LastPollTime,
-		Status:       resp.Status,
-		CreatedAt:    resp.CreatedAt,
-		UpdatedAt:    resp.UpdatedAt,
+		Address:                resp.Address,
+		Network:                resp.Network,
+		AssetType:              resp.AssetType,
+		TokenMint:              resp.TokenMint,
+		AssociatedTokenAddress: resp.AssociatedTokenAddress,
+		PollInterval:           pollInterval,
+		LastPollTime:           resp.LastPollTime,
+		Status:                 resp.Status,
+		CreatedAt:              resp.CreatedAt,
+		UpdatedAt:              resp.UpdatedAt,
 	}, nil
 }
 

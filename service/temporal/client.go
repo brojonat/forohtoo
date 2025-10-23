@@ -46,13 +46,15 @@ func NewClient(host, namespace, taskQueue string, logger *slog.Logger) (*Client,
 	}, nil
 }
 
-// CreateWalletSchedule creates a new Temporal schedule for polling a wallet.
-func (c *Client) CreateWalletSchedule(ctx context.Context, address string, network string, interval time.Duration) error {
-	id := scheduleID(address, network)
+// CreateWalletAssetSchedule creates a new Temporal schedule for polling a wallet asset.
+func (c *Client) CreateWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string, ata *string, interval time.Duration) error {
+	id := scheduleID(address, network, assetType, tokenMint)
 
-	c.logger.Debug("creating wallet schedule",
+	c.logger.Debug("creating wallet asset schedule",
 		"address", address,
 		"network", network,
+		"asset_type", assetType,
+		"token_mint", tokenMint,
 		"schedule_id", id,
 		"interval", interval,
 	)
@@ -66,12 +68,31 @@ func (c *Client) CreateWalletSchedule(ctx context.Context, address string, netwo
 		},
 	}
 
+	// Determine poll address based on asset type
+	var pollAddress string
+	if assetType == "sol" {
+		pollAddress = address
+	} else {
+		// For SPL tokens, poll the ATA
+		if ata == nil {
+			return fmt.Errorf("ATA is required for spl-token asset type")
+		}
+		pollAddress = *ata
+	}
+
 	// Create workflow action - this will execute the PollWalletWorkflow
 	workflowAction := client.ScheduleWorkflowAction{
-		ID:        fmt.Sprintf("poll-wallet-%s-%s", network, address),
+		ID:        fmt.Sprintf("poll-wallet-%s-%s-%s", network, address, pollAddress),
 		Workflow:  "PollWalletWorkflow",
 		TaskQueue: c.taskQueue,
-		Args:      []interface{}{PollWalletInput{Address: address, Network: network}},
+		Args: []interface{}{PollWalletInput{
+			WalletAddress:          address,
+			Network:                network,
+			AssetType:              assetType,
+			TokenMint:              tokenMint,
+			AssociatedTokenAddress: ata,
+			PollAddress:            pollAddress,
+		}},
 	}
 
 	// Create the schedule
@@ -82,6 +103,9 @@ func (c *Client) CreateWalletSchedule(ctx context.Context, address string, netwo
 		Memo: map[string]interface{}{
 			"wallet_address": address,
 			"network":        network,
+			"asset_type":     assetType,
+			"token_mint":     tokenMint,
+			"poll_address":   pollAddress,
 			"created_by":     "forohtoo",
 		},
 	})
@@ -95,8 +119,12 @@ func (c *Client) CreateWalletSchedule(ctx context.Context, address string, netwo
 		return fmt.Errorf("failed to create schedule %q: %w", id, err)
 	}
 
-	c.logger.Info("wallet schedule created",
+	c.logger.Info("wallet asset schedule created",
 		"address", address,
+		"network", network,
+		"asset_type", assetType,
+		"token_mint", tokenMint,
+		"poll_address", pollAddress,
 		"schedule_id", id,
 		"interval", interval,
 	)
@@ -104,13 +132,15 @@ func (c *Client) CreateWalletSchedule(ctx context.Context, address string, netwo
 	return nil
 }
 
-// DeleteWalletSchedule deletes the Temporal schedule for a wallet.
-func (c *Client) DeleteWalletSchedule(ctx context.Context, address string, network string) error {
-	id := scheduleID(address, network)
+// DeleteWalletAssetSchedule deletes the Temporal schedule for a wallet asset.
+func (c *Client) DeleteWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string) error {
+	id := scheduleID(address, network, assetType, tokenMint)
 
-	c.logger.Debug("deleting wallet schedule",
+	c.logger.Debug("deleting wallet asset schedule",
 		"address", address,
 		"network", network,
+		"asset_type", assetType,
+		"token_mint", tokenMint,
 		"schedule_id", id,
 	)
 
@@ -124,8 +154,11 @@ func (c *Client) DeleteWalletSchedule(ctx context.Context, address string, netwo
 		return fmt.Errorf("failed to delete schedule %q: %w", id, err)
 	}
 
-	c.logger.Info("wallet schedule deleted",
+	c.logger.Info("wallet asset schedule deleted",
 		"address", address,
+		"network", network,
+		"asset_type", assetType,
+		"token_mint", tokenMint,
 		"schedule_id", id,
 	)
 

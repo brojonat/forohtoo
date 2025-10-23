@@ -26,11 +26,14 @@ type Transaction struct {
 }
 
 type Wallet struct {
-	Address      string             `json:"address"`
-	PollInterval pgtype.Interval    `json:"poll_interval"`
-	LastPollTime pgtype.Timestamptz `json:"last_poll_time"`
-	Status       string             `json:"status"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	Network      string             `json:"network"`
+	Address                string             `json:"address"`
+	PollInterval           pgtype.Interval    `json:"poll_interval"`
+	LastPollTime           pgtype.Timestamptz `json:"last_poll_time"`
+	Status                 string             `json:"status"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	Network                string             `json:"network"`
+	AssetType              string             `json:"asset_type"`
+	TokenMint              string             `json:"token_mint"`
+	AssociatedTokenAddress pgtype.Text        `json:"associated_token_address"`
 }

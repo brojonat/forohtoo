@@ -215,3 +215,41 @@ func parseInt(key string, defaultValue int) (int, error) {
 	}
 	return result, nil
 }
+
+// GetSupportedMints returns the list of supported SPL token mint addresses for a given network.
+func (c *Config) GetSupportedMints(network string) ([]string, error) {
+	switch network {
+	case "mainnet":
+		return []string{c.USDCMainnetMintAddress}, nil
+	case "devnet":
+		return []string{c.USDCDevnetMintAddress}, nil
+	default:
+		return nil, fmt.Errorf("unsupported network: %s", network)
+	}
+}
+
+// IsMintSupported checks if a mint address is supported for a given network.
+func (c *Config) IsMintSupported(network string, mint string) bool {
+	mints, err := c.GetSupportedMints(network)
+	if err != nil {
+		return false
+	}
+	for _, m := range mints {
+		if m == mint {
+			return true
+		}
+	}
+	return false
+}
+
+// GetUSDCMintForNetwork returns the USDC mint address for a given network.
+func (c *Config) GetUSDCMintForNetwork(network string) (string, error) {
+	switch network {
+	case "mainnet":
+		return c.USDCMainnetMintAddress, nil
+	case "devnet":
+		return c.USDCDevnetMintAddress, nil
+	default:
+		return "", fmt.Errorf("unsupported network: %s", network)
+	}
+}
