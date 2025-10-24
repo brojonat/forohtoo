@@ -59,11 +59,11 @@ func (s *Server) WithTemplates() error {
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
-	// Register asset-aware routes
-	mux.Handle("POST /api/v1/wallet-assets", handleRegisterWalletWithScheduler(s.store, s.scheduler, s.cfg, s.logger))
-	mux.Handle("DELETE /api/v1/wallet-assets/{address}", handleUnregisterWalletWithScheduler(s.store, s.scheduler, s.logger))
-	mux.Handle("GET /api/v1/wallets/{address}", handleGetWallet(s.store, s.logger))
-	mux.Handle("GET /api/v1/wallets", handleListWallets(s.store, s.logger))
+	// Wallet asset routes
+	mux.Handle("POST /api/v1/wallet-assets", handleRegisterWalletAsset(s.store, s.scheduler, s.cfg, s.logger))
+	mux.Handle("DELETE /api/v1/wallet-assets/{address}", handleUnregisterWalletAsset(s.store, s.scheduler, s.logger))
+	mux.Handle("GET /api/v1/wallet-assets/{address}", handleGetWalletAsset(s.store, s.logger))
+	mux.Handle("GET /api/v1/wallet-assets", handleListWalletAssets(s.store, s.logger))
 	mux.Handle("GET /api/v1/transactions", handleListTransactions(s.store, s.logger))
 
 	// SSE streaming endpoints (if SSE publisher is configured)

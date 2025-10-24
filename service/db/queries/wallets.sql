@@ -12,6 +12,26 @@ INSERT INTO wallets (
 )
 RETURNING *;
 
+-- name: UpsertWallet :one
+INSERT INTO wallets (
+    address,
+    network,
+    asset_type,
+    token_mint,
+    associated_token_address,
+    poll_interval,
+    status
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7
+)
+ON CONFLICT (address, network, asset_type, token_mint)
+DO UPDATE SET
+    poll_interval = EXCLUDED.poll_interval,
+    associated_token_address = EXCLUDED.associated_token_address,
+    status = EXCLUDED.status,
+    updated_at = NOW()
+RETURNING *;
+
 -- name: GetWallet :one
 SELECT * FROM wallets
 WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4;

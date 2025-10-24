@@ -132,6 +132,87 @@ func (c *Client) CreateWalletAssetSchedule(ctx context.Context, address string, 
 	return nil
 }
 
+// UpsertWalletAssetSchedule creates or updates a Temporal schedule for polling a wallet asset.
+// If the schedule already exists, it updates the poll interval. Otherwise, it creates a new schedule.
+func (c *Client) UpsertWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string, ata *string, interval time.Duration) error {
+	id := scheduleID(address, network, assetType, tokenMint)
+
+	c.logger.Debug("upserting wallet asset schedule",
+		"address", address,
+		"network", network,
+		"asset_type", assetType,
+		"token_mint", tokenMint,
+		"schedule_id", id,
+		"interval", interval,
+	)
+
+	// Determine poll address based on asset type
+	var pollAddress string
+	if assetType == "sol" {
+		pollAddress = address
+	} else {
+		// For SPL tokens, poll the ATA
+		if ata == nil {
+			return fmt.Errorf("ATA is required for spl-token asset type")
+		}
+		pollAddress = *ata
+	}
+
+	// Try to get existing schedule
+	handle := c.client.ScheduleClient().GetHandle(ctx, id)
+	desc, err := handle.Describe(ctx)
+
+	if err != nil {
+		// Schedule doesn't exist or error getting it - create new one
+		c.logger.Debug("schedule not found, creating new one",
+			"schedule_id", id,
+			"error", err,
+		)
+		return c.CreateWalletAssetSchedule(ctx, address, network, assetType, tokenMint, ata, interval)
+	}
+
+	// Schedule exists - update the interval
+	c.logger.Debug("schedule exists, updating interval",
+		"schedule_id", id,
+		"old_interval", desc.Schedule.Spec.Intervals[0].Every,
+		"new_interval", interval,
+	)
+
+	// Update the schedule spec with new interval
+	err = handle.Update(ctx, client.ScheduleUpdateOptions{
+		DoUpdate: func(input client.ScheduleUpdateInput) (*client.ScheduleUpdate, error) {
+			// Update the interval
+			input.Description.Schedule.Spec.Intervals = []client.ScheduleIntervalSpec{
+				{Every: interval},
+			}
+			return &client.ScheduleUpdate{
+				Schedule: &input.Description.Schedule,
+			}, nil
+		},
+	})
+
+	if err != nil {
+		c.logger.Error("failed to update schedule",
+			"address", address,
+			"schedule_id", id,
+			"error", err,
+		)
+		return fmt.Errorf("failed to update schedule %q: %w", id, err)
+	}
+
+	c.logger.Info("wallet asset schedule updated",
+		"address", address,
+		"network", network,
+		"asset_type", assetType,
+		"token_mint", tokenMint,
+		"poll_address", pollAddress,
+		"schedule_id", id,
+		"interval", interval,
+	)
+
+	return nil
+}
+
 // DeleteWalletAssetSchedule deletes the Temporal schedule for a wallet asset.
 func (c *Client) DeleteWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string) error {
 	id := scheduleID(address, network, assetType, tokenMint)

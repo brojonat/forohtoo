@@ -14,6 +14,12 @@ type Scheduler interface {
 	// For SPL token assets, tokenMint and ata must be provided.
 	CreateWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string, ata *string, interval time.Duration) error
 
+	// UpsertWalletAssetSchedule creates or updates a schedule for polling a wallet asset.
+	// If the schedule exists, it updates the poll interval. If not, it creates a new schedule.
+	// For SOL assets, tokenMint should be empty and ata should be nil.
+	// For SPL token assets, tokenMint and ata must be provided.
+	UpsertWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string, ata *string, interval time.Duration) error
+
 	// DeleteWalletAssetSchedule deletes the schedule for a wallet asset.
 	// This stops the wallet asset from being polled.
 	DeleteWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string) error

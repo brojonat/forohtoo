@@ -27,7 +27,7 @@ func TestRegisterWallet_CreatesTemporalSchedule(t *testing.T) {
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
-	handler := handleRegisterWalletWithScheduler(store, scheduler, cfg, logger)
+	handler := handleRegisterWalletAsset(store, scheduler, cfg, logger)
 
 	tests := []struct {
 		name      string
@@ -38,12 +38,12 @@ func TestRegisterWallet_CreatesTemporalSchedule(t *testing.T) {
 		expected  time.Duration
 	}{
 		{
-			name:      "creates schedule with 30s interval on mainnet",
+			name:      "creates schedule with 60s interval on mainnet",
 			address:   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
 			network:   "mainnet",
 			tokenMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-			interval:  "30s",
-			expected:  30 * time.Second,
+			interval:  "60s",
+			expected:  60 * time.Second,
 		},
 		{
 			name:      "creates schedule with 5m interval on devnet",
@@ -98,12 +98,12 @@ func TestRegisterWallet_TemporalFailure(t *testing.T) {
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
-	handler := handleRegisterWalletWithScheduler(store, scheduler, cfg, logger)
+	handler := handleRegisterWalletAsset(store, scheduler, cfg, logger)
 
 	// Make scheduler return an error
 	scheduler.SetCreateError(fmt.Errorf("temporal service unavailable"))
 
-	body := `{"address":"SysvarStakeHistory1111111111111111111111111","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"30s"}`
+	body := `{"address":"SysvarStakeHistory1111111111111111111111111","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"60s"}`
 	req := httptest.NewRequest("POST", "/api/v1/wallet-assets", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -116,7 +116,7 @@ func TestRegisterWallet_TemporalFailure(t *testing.T) {
 	var errResp map[string]string
 	err := json.NewDecoder(w.Body).Decode(&errResp)
 	require.NoError(t, err)
-	assert.Contains(t, errResp["error"], "failed to create schedule")
+	assert.Contains(t, errResp["error"], "failed to upsert schedule")
 
 	// Verify wallet was not created in DB (rollback)
 	exists, err := store.WalletExists(context.Background(), "SysvarStakeHistory1111111111111111111111111", "mainnet", "spl-token", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
@@ -128,7 +128,7 @@ func TestUnregisterWallet_DeletesTemporalSchedule(t *testing.T) {
 	store := setupTestStore(t)
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	scheduler := temporal.NewMockScheduler()
-	handler := handleUnregisterWalletWithScheduler(store, scheduler, logger)
+	handler := handleUnregisterWalletAsset(store, scheduler, logger)
 
 	address := "Config1111111111111111111111111111111111111"
 	network := "mainnet"
@@ -174,7 +174,7 @@ func TestUnregisterWallet_TemporalFailure(t *testing.T) {
 	store := setupTestStore(t)
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	scheduler := temporal.NewMockScheduler()
-	handler := handleUnregisterWalletWithScheduler(store, scheduler, logger)
+	handler := handleUnregisterWalletAsset(store, scheduler, logger)
 
 	address := "Stake11111111111111111111111111111111111111"
 	network := "mainnet"
@@ -224,7 +224,7 @@ func TestUnregisterWallet_TemporalFailure(t *testing.T) {
 	scheduler.DeleteWalletAssetSchedule(context.Background(), address, network, assetType, tokenMint)
 }
 
-func TestRegisterWallet_DuplicateAddress(t *testing.T) {
+func TestRegisterWallet_UpsertBehavior(t *testing.T) {
 	store := setupTestStore(t)
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	scheduler := temporal.NewMockScheduler()
@@ -232,15 +232,15 @@ func TestRegisterWallet_DuplicateAddress(t *testing.T) {
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
-	handler := handleRegisterWalletWithScheduler(store, scheduler, cfg, logger)
+	handler := handleRegisterWalletAsset(store, scheduler, cfg, logger)
 
 	address := "Vote111111111111111111111111111111111111111"
 	network := "mainnet"
 	assetType := "spl-token"
 	tokenMint := "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
-	// First registration
-	body := fmt.Sprintf(`{"address":"%s","network":"%s","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"30s"}`, address, network)
+	// First registration with 60s interval
+	body := fmt.Sprintf(`{"address":"%s","network":"%s","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"60s"}`, address, network)
 	req := httptest.NewRequest("POST", "/api/v1/wallet-assets", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -249,22 +249,31 @@ func TestRegisterWallet_DuplicateAddress(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, w.Code)
 	assert.True(t, scheduler.ScheduleExists(address, network, assetType, tokenMint))
+	interval, exists := scheduler.GetScheduleInterval(address, network, assetType, tokenMint)
+	assert.True(t, exists)
+	assert.Equal(t, 60*time.Second, interval)
 
-	// Second registration (duplicate on same network)
-	req = httptest.NewRequest("POST", "/api/v1/wallet-assets", strings.NewReader(body))
+	// Second registration (duplicate on same network) with 120s interval - should update
+	bodyUpdate := fmt.Sprintf(`{"address":"%s","network":"%s","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"120s"}`, address, network)
+	req = httptest.NewRequest("POST", "/api/v1/wallet-assets", strings.NewReader(bodyUpdate))
 	req.Header.Set("Content-Type", "application/json")
 
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	// Should return conflict
-	assert.Equal(t, http.StatusConflict, w.Code)
+	// Should succeed (upsert behavior)
+	assert.Equal(t, http.StatusCreated, w.Code)
 
 	// Should still only have one schedule
 	assert.Equal(t, 1, scheduler.ScheduleCount())
 
-	// But can register same address on different network
-	bodyDevnet := fmt.Sprintf(`{"address":"%s","network":"devnet","asset":{"type":"spl-token","token_mint":"4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"},"poll_interval":"30s"}`, address)
+	// But the interval should be updated
+	interval, exists = scheduler.GetScheduleInterval(address, network, assetType, tokenMint)
+	assert.True(t, exists)
+	assert.Equal(t, 120*time.Second, interval)
+
+	// Can register same address on different network
+	bodyDevnet := fmt.Sprintf(`{"address":"%s","network":"devnet","asset":{"type":"spl-token","token_mint":"4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"},"poll_interval":"60s"}`, address)
 	req = httptest.NewRequest("POST", "/api/v1/wallet-assets", strings.NewReader(bodyDevnet))
 	req.Header.Set("Content-Type", "application/json")
 

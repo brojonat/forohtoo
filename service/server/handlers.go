@@ -28,58 +28,10 @@ var (
 	validAddressRegex = regexp.MustCompile(`^[1-9A-HJ-NP-Za-km-z]+$`)
 )
 
-// handleUnregisterWallet returns a handler that unregisters a wallet.
-// DELETE /api/v1/wallets/{address}?network={network}
-func handleUnregisterWallet(store *db.Store, logger *slog.Logger) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		address := r.PathValue("address")
-		network := r.URL.Query().Get("network")
-
-		// Validate address format (basic check)
-		if err := validateAddress(address); err != nil {
-			logger.Debug("invalid address", "address", address, "error", err)
-			writeError(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		// Validate network
-		if err := validateNetwork(network); err != nil {
-			logger.Debug("invalid network", "network", network, "error", err)
-			writeError(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		// Check if wallet exists
-		// Note: This handler is deprecated and only used in tests. Use handleUnregisterWalletWithScheduler instead.
-		// Using empty asset_type and token_mint for backward compatibility
-		exists, err := store.WalletExists(r.Context(), address, network, "", "")
-		if err != nil {
-			logger.Error("failed to check wallet existence", "address", address, "network", network, "error", err)
-			writeError(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		if !exists {
-			writeError(w, "wallet not found", http.StatusNotFound)
-			return
-		}
-
-		// Delete wallet
-		if err := store.DeleteWallet(r.Context(), address, network, "", ""); err != nil {
-			logger.Error("failed to delete wallet", "address", address, "network", network, "error", err)
-			writeError(w, "failed to unregister wallet", http.StatusInternalServerError)
-			return
-		}
-
-		logger.Info("wallet unregistered", "address", address, "network", network)
-		w.WriteHeader(http.StatusNoContent)
-	})
-}
-
-// handleGetWallet returns a handler that retrieves all assets for a wallet address.
-// GET /api/v1/wallets/{address}?network={network}
+// handleGetWalletAsset returns a handler that retrieves all assets for a wallet address.
+// GET /api/v1/wallet-assets/{address}?network={network}
 // Returns all registered assets for the given wallet address and network.
-func handleGetWallet(store *db.Store, logger *slog.Logger) http.Handler {
+func handleGetWalletAsset(store *db.Store, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		address := r.PathValue("address")
 		network := r.URL.Query().Get("network")
@@ -127,9 +79,9 @@ func handleGetWallet(store *db.Store, logger *slog.Logger) http.Handler {
 	})
 }
 
-// handleListWallets returns a handler that lists all registered wallets.
-// GET /api/v1/wallets
-func handleListWallets(store *db.Store, logger *slog.Logger) http.Handler {
+// handleListWalletAssets returns a handler that lists all registered wallet assets.
+// GET /api/v1/wallet-assets
+func handleListWalletAssets(store *db.Store, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		wallets, err := store.ListWallets(r.Context())
 		if err != nil {
@@ -152,10 +104,10 @@ func handleListWallets(store *db.Store, logger *slog.Logger) http.Handler {
 	})
 }
 
-// handleRegisterWalletWithScheduler returns a handler that registers a new wallet+asset
+// handleRegisterWalletAsset returns a handler that registers a new wallet+asset
 // and creates a Temporal schedule for polling.
 // POST /api/v1/wallet-assets
-func handleRegisterWalletWithScheduler(store *db.Store, scheduler temporal.Scheduler, cfg *config.Config, logger *slog.Logger) http.Handler {
+func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, cfg *config.Config, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Limit request body size to prevent memory exhaustion
 		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
@@ -257,8 +209,8 @@ func handleRegisterWalletWithScheduler(store *db.Store, scheduler temporal.Sched
 			ata = &ataAddr
 		}
 
-		// Try to create wallet+asset in database
-		params := db.CreateWalletParams{
+		// Upsert wallet+asset in database (create or update if exists)
+		params := db.UpsertWalletParams{
 			Address:                req.Address,
 			Network:                req.Network,
 			AssetType:              req.Asset.Type,
@@ -268,38 +220,27 @@ func handleRegisterWalletWithScheduler(store *db.Store, scheduler temporal.Sched
 			Status:                 "active",
 		}
 
-		wallet, err := store.CreateWallet(r.Context(), params)
+		wallet, err := store.UpsertWallet(r.Context(), params)
 		if err != nil {
-			// Check for duplicate key error
-			if strings.Contains(err.Error(), "duplicate key") {
-				logger.Debug("wallet asset already exists",
-					"address", req.Address,
-					"network", req.Network,
-					"asset_type", req.Asset.Type,
-					"token_mint", tokenMint,
-				)
-				writeError(w, "wallet asset already registered", http.StatusConflict)
-				return
-			}
-			logger.Error("failed to create wallet asset", "address", req.Address, "error", err)
+			logger.Error("failed to upsert wallet asset", "address", req.Address, "error", err)
 			writeError(w, "failed to register wallet asset", http.StatusInternalServerError)
 			return
 		}
 
-		// Create Temporal schedule for new wallet asset
-		if err := scheduler.CreateWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, pollInterval); err != nil {
-			logger.Error("failed to create schedule", "address", req.Address, "network", req.Network, "error", err)
+		// Upsert Temporal schedule (create or update if exists)
+		if err := scheduler.UpsertWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, pollInterval); err != nil {
+			logger.Error("failed to upsert schedule", "address", req.Address, "network", req.Network, "error", err)
 
-			// Rollback: delete the wallet asset we just created
+			// Rollback: delete the wallet asset we just created/updated
 			if delErr := store.DeleteWallet(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint); delErr != nil {
-				logger.Error("failed to rollback wallet asset creation", "address", req.Address, "network", req.Network, "error", delErr)
+				logger.Error("failed to rollback wallet asset upsert", "address", req.Address, "network", req.Network, "error", delErr)
 			}
 
-			writeError(w, "failed to create schedule for wallet asset", http.StatusInternalServerError)
+			writeError(w, "failed to upsert schedule for wallet asset", http.StatusInternalServerError)
 			return
 		}
 
-		logger.Info("wallet asset registered with schedule",
+		logger.Info("wallet asset upserted with schedule",
 			"address", wallet.Address,
 			"network", req.Network,
 			"asset_type", req.Asset.Type,
@@ -313,10 +254,10 @@ func handleRegisterWalletWithScheduler(store *db.Store, scheduler temporal.Sched
 	})
 }
 
-// handleUnregisterWalletWithScheduler returns a handler that unregisters a wallet+asset
+// handleUnregisterWalletAsset returns a handler that unregisters a wallet+asset
 // and deletes its Temporal schedule.
 // DELETE /api/v1/wallet-assets/{address}?network={network}&asset_type={type}&token_mint={mint}
-func handleUnregisterWalletWithScheduler(store *db.Store, scheduler temporal.Scheduler, logger *slog.Logger) http.Handler {
+func handleUnregisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		address := r.PathValue("address")
 		network := r.URL.Query().Get("network")

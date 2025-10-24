@@ -259,6 +259,17 @@ type CreateWalletParams struct {
 	Status                 string
 }
 
+// UpsertWalletParams contains the parameters for upserting a wallet asset.
+type UpsertWalletParams struct {
+	Address                string
+	Network                string
+	AssetType              string
+	TokenMint              string
+	AssociatedTokenAddress *string
+	PollInterval           time.Duration
+	Status                 string
+}
+
 // CreateWallet registers a new wallet+asset for monitoring.
 func (s *Store) CreateWallet(ctx context.Context, params CreateWalletParams) (*Wallet, error) {
 	sqlcParams := dbgen.CreateWalletParams{
@@ -272,6 +283,27 @@ func (s *Store) CreateWallet(ctx context.Context, params CreateWalletParams) (*W
 	}
 
 	result, err := s.q.CreateWallet(ctx, sqlcParams)
+	if err != nil {
+		return nil, err
+	}
+
+	return dbWalletToDomain(&result), nil
+}
+
+// UpsertWallet creates or updates a wallet+asset for monitoring.
+// If the wallet already exists, it updates the poll interval, ATA, and status.
+func (s *Store) UpsertWallet(ctx context.Context, params UpsertWalletParams) (*Wallet, error) {
+	sqlcParams := dbgen.UpsertWalletParams{
+		Address:                params.Address,
+		Network:                params.Network,
+		AssetType:              params.AssetType,
+		TokenMint:              params.TokenMint,
+		AssociatedTokenAddress: pgtextFromStringPtr(params.AssociatedTokenAddress),
+		PollInterval:           pgIntervalFromDuration(params.PollInterval),
+		Status:                 params.Status,
+	}
+
+	result, err := s.q.UpsertWallet(ctx, sqlcParams)
 	if err != nil {
 		return nil, err
 	}

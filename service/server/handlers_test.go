@@ -51,7 +51,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
-	handler := handleRegisterWalletWithScheduler(store, scheduler, cfg, logger)
+	handler := handleRegisterWalletAsset(store, scheduler, cfg, logger)
 
 	tests := []struct {
 		name           string
@@ -61,7 +61,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 	}{
 		{
 			name:           "extremely large request body",
-			body:           `{"address":"` + strings.Repeat("A", 10*1024*1024) + `","poll_interval":"30s"}`, // 10MB
+			body:           `{"address":"` + strings.Repeat("A", 10*1024*1024) + `","poll_interval":"60s"}`, // 10MB
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "request body too large")
@@ -85,7 +85,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "missing address",
-			body:           `{"poll_interval":"30s"}`,
+			body:           `{"poll_interval":"60s"}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "address is required")
@@ -93,7 +93,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "empty address",
-			body:           `{"address":"","poll_interval":"30s"}`,
+			body:           `{"address":"","poll_interval":"60s"}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "address is required")
@@ -101,7 +101,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "address too long",
-			body:           `{"address":"` + strings.Repeat("A", 500) + `","poll_interval":"30s"}`,
+			body:           `{"address":"` + strings.Repeat("A", 500) + `","poll_interval":"60s"}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "address too long")
@@ -109,7 +109,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "address with null bytes",
-			body:           `{"address":"wallet\u0000123","poll_interval":"30s"}`,
+			body:           `{"address":"wallet\u0000123","poll_interval":"60s"}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "invalid characters")
@@ -117,7 +117,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "address with SQL injection attempt",
-			body:           `{"address":"wallet'; DROP TABLE wallets; --","poll_interval":"30s"}`,
+			body:           `{"address":"wallet'; DROP TABLE wallets; --","poll_interval":"60s"}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "invalid characters")
@@ -165,7 +165,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "extra unexpected fields should be ignored",
-			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"30s","malicious":"data","admin":true}`,
+			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"60s","malicious":"data","admin":true}`,
 			expectedStatus: http.StatusCreated,
 			checkError:     nil,
 		},
@@ -221,17 +221,17 @@ func TestRegisterWallet_ValidInput(t *testing.T) {
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
-	handler := handleRegisterWalletWithScheduler(store, scheduler, cfg, logger)
+	handler := handleRegisterWalletAsset(store, scheduler, cfg, logger)
 
 	tests := []struct {
 		name     string
 		address  string
 		interval string
 	}{
-		{"normal address", "SysvarRent111111111111111111111111111111111", "30s"},
+		{"normal address", "SysvarRent111111111111111111111111111111111", "60s"},
 		{"address with mix", "SysvarC1ock11111111111111111111111111111111", "1m"},
-		{"max length address", "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "30s"}, // Valid Solana address
-		{"minimum poll interval", "Config1111111111111111111111111111111111111", "10s"},
+		{"max length address", "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "60s"}, // Valid Solana address
+		{"minimum poll interval", "Config1111111111111111111111111111111111111", "60s"},
 		{"various durations", "Stake11111111111111111111111111111111111111", "5m"},
 	}
 
@@ -255,7 +255,7 @@ func TestRegisterWallet_ValidInput(t *testing.T) {
 func TestGetWallet_PathologicalInput(t *testing.T) {
 	store := setupTestStore(t)
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	handler := handleGetWallet(store, logger)
+	handler := handleGetWalletAsset(store, logger)
 
 	tests := []struct {
 		name           string
@@ -270,34 +270,6 @@ func TestGetWallet_PathologicalInput(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/api/v1/wallets/"+tt.address, nil)
-			req.SetPathValue("address", tt.address)
-
-			w := httptest.NewRecorder()
-			handler.ServeHTTP(w, req)
-
-			assert.Equal(t, tt.expectedStatus, w.Code)
-		})
-	}
-}
-
-func TestUnregisterWallet_PathologicalInput(t *testing.T) {
-	store := setupTestStore(t)
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	handler := handleUnregisterWallet(store, logger)
-
-	tests := []struct {
-		name           string
-		address        string
-		expectedStatus int
-	}{
-		{"empty address", "", http.StatusBadRequest},
-		{"very long address", strings.Repeat("A", 500), http.StatusBadRequest}, // Caught by validation
-		// Note: Path traversal and SQL injection already tested in POST handler
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("DELETE", "/api/v1/wallets/"+tt.address, nil)
 			req.SetPathValue("address", tt.address)
 
 			w := httptest.NewRecorder()

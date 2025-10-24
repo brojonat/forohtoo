@@ -31,7 +31,7 @@ func TestRegister_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, nil, nil)
-	err := client.Register(context.Background(), "wallet123", "mainnet", 30*time.Second)
+	err := client.RegisterAsset(context.Background(), "wallet123", "mainnet", "sol", "", 30*time.Second)
 	assert.NoError(t, err)
 }
 
@@ -46,7 +46,7 @@ func TestRegister_ServerError(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, nil, nil)
-	err := client.Register(context.Background(), "invalid", "mainnet", 30*time.Second)
+	err := client.RegisterAsset(context.Background(), "invalid", "mainnet", "sol", "", 30*time.Second)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid wallet address")
 }
@@ -62,7 +62,7 @@ func TestUnregister_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, nil, nil)
-	err := client.Unregister(context.Background(), "wallet123", "mainnet")
+	err := client.UnregisterAsset(context.Background(), "wallet123", "mainnet", "sol", "")
 	assert.NoError(t, err)
 }
 
@@ -77,7 +77,7 @@ func TestUnregister_NotFound(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, nil, nil)
-	err := client.Unregister(context.Background(), "nonexistent", "mainnet")
+	err := client.UnregisterAsset(context.Background(), "nonexistent", "mainnet", "sol", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "wallet not found")
 }
@@ -88,7 +88,7 @@ func TestGet_Success(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "GET", r.Method)
-		assert.Equal(t, "/api/v1/wallets/wallet123", r.URL.Path)
+		assert.Equal(t, "/api/v1/wallet-assets/wallet123", r.URL.Path)
 		assert.Equal(t, "mainnet", r.URL.Query().Get("network"))
 
 		// Return response in server format (poll_interval as string)
@@ -142,7 +142,7 @@ func TestList_Success(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "GET", r.Method)
-		assert.Equal(t, "/api/v1/wallets", r.URL.Path)
+		assert.Equal(t, "/api/v1/wallet-assets", r.URL.Path)
 
 		// Return response in server format (poll_interval as string)
 		response := map[string]interface{}{

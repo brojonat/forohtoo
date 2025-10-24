@@ -36,6 +36,20 @@ func (m *MockScheduler) CreateWalletAssetSchedule(ctx context.Context, address s
 	return nil
 }
 
+// UpsertWalletAssetSchedule creates or updates a schedule.
+func (m *MockScheduler) UpsertWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string, ata *string, interval time.Duration) error {
+	if m.createErr != nil {
+		return m.createErr
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	id := scheduleID(address, network, assetType, tokenMint)
+	m.schedules[id] = interval // Creates or updates
+	return nil
+}
+
 // DeleteWalletAssetSchedule records that a schedule was deleted.
 func (m *MockScheduler) DeleteWalletAssetSchedule(ctx context.Context, address string, network string, assetType string, tokenMint string) error {
 	if m.deleteErr != nil {

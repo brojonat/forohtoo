@@ -102,14 +102,6 @@ func (c *Client) RegisterAsset(ctx context.Context, address string, network stri
 	return nil
 }
 
-// Register tells the server to start monitoring a wallet for transactions.
-// Deprecated: Use RegisterAsset instead for explicit asset type specification.
-func (c *Client) Register(ctx context.Context, address string, network string, pollInterval time.Duration) error {
-	// Default to USDC monitoring for backward compatibility
-	// Users should migrate to RegisterAsset
-	return c.RegisterAsset(ctx, address, network, "spl-token", "", pollInterval)
-}
-
 // UnregisterAsset tells the server to stop monitoring a wallet asset.
 func (c *Client) UnregisterAsset(ctx context.Context, address string, network string, assetType string, tokenMint string) error {
 	u := fmt.Sprintf("%s/api/v1/wallet-assets/%s?network=%s&asset_type=%s&token_mint=%s",
@@ -142,16 +134,9 @@ func (c *Client) UnregisterAsset(ctx context.Context, address string, network st
 	return nil
 }
 
-// Unregister tells the server to stop monitoring a wallet.
-// Deprecated: Use UnregisterAsset instead for explicit asset type specification.
-func (c *Client) Unregister(ctx context.Context, address string, network string) error {
-	// Default to removing USDC monitoring for backward compatibility
-	return c.UnregisterAsset(ctx, address, network, "spl-token", "")
-}
-
 // Get retrieves the registration details for a specific wallet.
 func (c *Client) Get(ctx context.Context, address string, network string) (*Wallet, error) {
-	u := fmt.Sprintf("%s/api/v1/wallets/%s?network=%s", c.baseURL, url.PathEscape(address), url.QueryEscape(network))
+	u := fmt.Sprintf("%s/api/v1/wallet-assets/%s?network=%s", c.baseURL, url.PathEscape(address), url.QueryEscape(network))
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -177,7 +162,7 @@ func (c *Client) Get(ctx context.Context, address string, network string) (*Wall
 
 // List retrieves all registered wallets.
 func (c *Client) List(ctx context.Context) ([]*Wallet, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/wallets", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/wallet-assets", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
