@@ -19,7 +19,7 @@ import (
 const (
 	maxRequestBodySize = 1 << 20 // 1MB - plenty for wallet registration
 	maxAddressLength   = 100     // Solana addresses are 44 chars, give buffer
-	minPollInterval    = 10 * time.Second
+	minPollInterval    = 60 * time.Second
 	maxPollInterval    = 24 * time.Hour
 )
 
