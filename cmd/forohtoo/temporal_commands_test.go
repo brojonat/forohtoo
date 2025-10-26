@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -420,4 +421,297 @@ func createTemporalTestApp() *cli.App {
 		},
 	}
 	return app
+}
+
+// TestScheduleIDParsing tests parsing of both old and new schedule ID formats
+// This is a unit test that doesn't require Temporal
+func TestScheduleIDParsing(t *testing.T) {
+	tests := []struct {
+		name           string
+		scheduleID     string
+		expectedValid  bool
+		expectedFormat string // "old" or "new"
+		expectedParts  map[string]string
+	}{
+		{
+			name:           "new format - SOL asset",
+			scheduleID:     "poll-wallet-mainnet-9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk-sol-",
+			expectedValid:  true,
+			expectedFormat: "new",
+			expectedParts: map[string]string{
+				"network":    "mainnet",
+				"address":    "9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk",
+				"asset_type": "sol",
+				"token_mint": "",
+			},
+		},
+		{
+			name:           "new format - USDC SPL token",
+			scheduleID:     "poll-wallet-mainnet-9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk-spl-token-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+			expectedValid:  true,
+			expectedFormat: "new",
+			expectedParts: map[string]string{
+				"network":    "mainnet",
+				"address":    "9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk",
+				"asset_type": "spl-token",
+				"token_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+			},
+		},
+		{
+			name:           "new format - devnet SPL token",
+			scheduleID:     "poll-wallet-devnet-TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA-spl-token-4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+			expectedValid:  true,
+			expectedFormat: "new",
+			expectedParts: map[string]string{
+				"network":    "devnet",
+				"address":    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+				"asset_type": "spl-token",
+				"token_mint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+			},
+		},
+		{
+			name:           "old format - mainnet",
+			scheduleID:     "poll-wallet-mainnet-9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk",
+			expectedValid:  true,
+			expectedFormat: "old",
+			expectedParts: map[string]string{
+				"network":    "mainnet",
+				"address":    "9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk",
+				"asset_type": "",
+				"token_mint": "",
+			},
+		},
+		{
+			name:           "old format - devnet",
+			scheduleID:     "poll-wallet-devnet-TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+			expectedValid:  true,
+			expectedFormat: "old",
+			expectedParts: map[string]string{
+				"network":    "devnet",
+				"address":    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+				"asset_type": "",
+				"token_mint": "",
+			},
+		},
+		{
+			name:          "invalid - no prefix",
+			scheduleID:    "some-other-schedule",
+			expectedValid: false,
+		},
+		{
+			name:          "invalid - only prefix",
+			scheduleID:    "poll-wallet-",
+			expectedValid: false,
+		},
+		{
+			name:          "invalid - single part",
+			scheduleID:    "poll-wallet-mainnet",
+			expectedValid: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse using the logic from reconcile command
+			if !strings.HasPrefix(tt.scheduleID, "poll-wallet-") {
+				assert.False(t, tt.expectedValid, "Schedule ID without prefix should be invalid")
+				return
+			}
+
+			remainder := tt.scheduleID[12:] // Skip "poll-wallet-" prefix
+			parts := strings.SplitN(remainder, "-", 3) // Split into network-address-rest
+			if len(parts) < 2 {
+				assert.False(t, tt.expectedValid, "Schedule ID with < 2 parts should be invalid")
+				return
+			}
+
+			assert.True(t, tt.expectedValid, "Schedule ID should be valid")
+
+			var network, address, assetType, tokenMint string
+			network = parts[0]
+			address = parts[1]
+
+			if len(parts) == 3 {
+				// New format: parse asset_type and token_mint from remainder
+				assert.Equal(t, "new", tt.expectedFormat, "Should parse as new format")
+				rest := parts[2]
+
+				if strings.HasPrefix(rest, "sol-") {
+					assetType = "sol"
+					tokenMint = rest[4:] // Everything after "sol-"
+				} else if strings.HasPrefix(rest, "spl-token-") {
+					assetType = "spl-token"
+					tokenMint = rest[10:] // Everything after "spl-token-"
+				} else {
+					assert.Fail(t, "Unknown asset type format")
+				}
+			} else {
+				// Old format: poll-wallet-{network}-{address}
+				assert.Equal(t, "old", tt.expectedFormat, "Should parse as old format")
+				assetType = ""
+				tokenMint = ""
+			}
+
+			if tt.expectedParts != nil {
+				assert.Equal(t, tt.expectedParts["network"], network)
+				assert.Equal(t, tt.expectedParts["address"], address)
+				assert.Equal(t, tt.expectedParts["asset_type"], assetType)
+				assert.Equal(t, tt.expectedParts["token_mint"], tokenMint)
+			}
+		})
+	}
+}
+
+// TestScheduleIDGeneration tests generating schedule IDs from wallet data
+func TestScheduleIDGeneration(t *testing.T) {
+	tests := []struct {
+		name       string
+		network    string
+		address    string
+		assetType  string
+		tokenMint  string
+		expectedID string
+	}{
+		{
+			name:       "SOL asset",
+			network:    "mainnet",
+			address:    "9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk",
+			assetType:  "sol",
+			tokenMint:  "",
+			expectedID: "poll-wallet-mainnet-9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk-sol-",
+		},
+		{
+			name:       "USDC mainnet",
+			network:    "mainnet",
+			address:    "9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk",
+			assetType:  "spl-token",
+			tokenMint:  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+			expectedID: "poll-wallet-mainnet-9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk-spl-token-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		},
+		{
+			name:       "USDC devnet",
+			network:    "devnet",
+			address:    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+			assetType:  "spl-token",
+			tokenMint:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+			expectedID: "poll-wallet-devnet-TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA-spl-token-4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Generate using the logic from reconcile command
+			scheduleID := "poll-wallet-" + tt.network + "-" + tt.address + "-" + tt.assetType + "-" + tt.tokenMint
+			assert.Equal(t, tt.expectedID, scheduleID)
+		})
+	}
+}
+
+// TestWalletKeyGeneration tests generating wallet keys for matching
+func TestWalletKeyGeneration(t *testing.T) {
+	tests := []struct {
+		name        string
+		network     string
+		address     string
+		assetType   string
+		tokenMint   string
+		expectedKey string
+	}{
+		{
+			name:        "SOL asset",
+			network:     "mainnet",
+			address:     "9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk",
+			assetType:   "sol",
+			tokenMint:   "",
+			expectedKey: "mainnet:9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk:sol:",
+		},
+		{
+			name:        "USDC mainnet",
+			network:     "mainnet",
+			address:     "9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk",
+			assetType:   "spl-token",
+			tokenMint:   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+			expectedKey: "mainnet:9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk:spl-token:EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		},
+		{
+			name:        "old format (empty asset type)",
+			network:     "mainnet",
+			address:     "9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk",
+			assetType:   "",
+			tokenMint:   "",
+			expectedKey: "mainnet:9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk::",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Generate using the logic from reconcile command
+			key := tt.network + ":" + tt.address + ":" + tt.assetType + ":" + tt.tokenMint
+			assert.Equal(t, tt.expectedKey, key)
+		})
+	}
+}
+
+// TestReconcileRoundTrip tests that we can generate a schedule ID and parse it back
+func TestReconcileRoundTrip(t *testing.T) {
+	tests := []struct {
+		name      string
+		network   string
+		address   string
+		assetType string
+		tokenMint string
+	}{
+		{
+			name:      "SOL asset",
+			network:   "mainnet",
+			address:   "9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk",
+			assetType: "sol",
+			tokenMint: "",
+		},
+		{
+			name:      "USDC mainnet",
+			network:   "mainnet",
+			address:   "9roL4UsoNzxgypchxXAkti7opEoLLYXz8DihEQuLQwqk",
+			assetType: "spl-token",
+			tokenMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Generate schedule ID
+			scheduleID := "poll-wallet-" + tt.network + "-" + tt.address + "-" + tt.assetType + "-" + tt.tokenMint
+
+			// Parse it back using the reconcile logic
+			remainder := scheduleID[12:] // Skip "poll-wallet-" prefix
+			parts := strings.SplitN(remainder, "-", 3) // Split into network-address-rest
+			assert.Equal(t, 3, len(parts), "New format should parse into 3 parts")
+
+			network := parts[0]
+			address := parts[1]
+			rest := parts[2]
+
+			var assetType, tokenMint string
+			if strings.HasPrefix(rest, "sol-") {
+				assetType = "sol"
+				tokenMint = rest[4:]
+			} else if strings.HasPrefix(rest, "spl-token-") {
+				assetType = "spl-token"
+				tokenMint = rest[10:]
+			}
+
+			// Verify round trip
+			assert.Equal(t, tt.network, network)
+			assert.Equal(t, tt.address, address)
+			assert.Equal(t, tt.assetType, assetType)
+			assert.Equal(t, tt.tokenMint, tokenMint)
+
+			// Generate wallet key
+			walletKey := network + ":" + address + ":" + assetType + ":" + tokenMint
+
+			// Verify the keys match
+			expectedWalletKey := tt.network + ":" + tt.address + ":" + tt.assetType + ":" + tt.tokenMint
+			assert.Equal(t, expectedWalletKey, walletKey)
+		})
+	}
 }

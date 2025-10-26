@@ -487,38 +487,85 @@ func reconcileCommand() *cli.Command {
 			}
 
 			// Check for inconsistencies
-			var missingSchedules []string
+			type WalletAssetKey struct {
+				Address   string
+				Network   string
+				AssetType string
+				TokenMint string
+			}
+			var missingSchedules []WalletAssetKey
 			var orphanedSchedules []string
 
 			// Find wallets without schedules
-			type WalletKey struct {
-				Address string
-				Network string
-			}
 			for _, wallet := range wallets {
 				if wallet.Status != "active" {
 					continue // Skip non-active wallets
 				}
-				scheduleID := "poll-wallet-" + wallet.Network + "-" + wallet.Address
+				// New asset-aware schedule ID format
+				scheduleID := "poll-wallet-" + wallet.Network + "-" + wallet.Address + "-" + wallet.AssetType + "-" + wallet.TokenMint
 				if !schedules[scheduleID] {
-					missingSchedules = append(missingSchedules, wallet.Address+":"+wallet.Network)
+					missingSchedules = append(missingSchedules, WalletAssetKey{
+						Address:   wallet.Address,
+						Network:   wallet.Network,
+						AssetType: wallet.AssetType,
+						TokenMint: wallet.TokenMint,
+					})
 				}
 			}
 
 			// Find schedules without wallets
 			walletsMap := make(map[string]bool)
 			for _, wallet := range wallets {
-				walletsMap[wallet.Network+":"+wallet.Address] = true
+				// New format: {network}:{address}:{asset_type}:{token_mint}
+				key := wallet.Network + ":" + wallet.Address + ":" + wallet.AssetType + ":" + wallet.TokenMint
+				walletsMap[key] = true
 			}
 
 			for scheduleID := range schedules {
-				// Extract wallet address and network from schedule ID (format: poll-wallet-{network}-{address})
-				if len(scheduleID) > 12 && scheduleID[:12] == "poll-wallet-" {
-					// Old format support: poll-wallet-{address}
-					address := scheduleID[12:]
-					if !walletsMap["mainnet:"+address] && !walletsMap["devnet:"+address] {
+				// Parse schedule ID format: poll-wallet-{network}-{address}-{asset_type}-{token_mint}
+				if !strings.HasPrefix(scheduleID, "poll-wallet-") {
+					continue
+				}
+
+				remainder := scheduleID[12:] // Skip "poll-wallet-" prefix
+				parts := strings.SplitN(remainder, "-", 3) // Split into network-address-rest
+				if len(parts) < 2 {
+					// Invalid format, mark as orphaned
+					orphanedSchedules = append(orphanedSchedules, scheduleID)
+					continue
+				}
+
+				// Handle both old and new formats
+				var network, address, assetType, tokenMint string
+				network = parts[0]
+				address = parts[1]
+
+				if len(parts) == 3 {
+					// New format: parse asset_type and token_mint from remainder
+					// Could be: "sol-" (SOL asset, empty token_mint)
+					// Or: "spl-token-{mint}" (SPL token with mint address)
+					rest := parts[2]
+
+					if strings.HasPrefix(rest, "sol-") {
+						assetType = "sol"
+						tokenMint = rest[4:] // Everything after "sol-"
+					} else if strings.HasPrefix(rest, "spl-token-") {
+						assetType = "spl-token"
+						tokenMint = rest[10:] // Everything after "spl-token-"
+					} else {
+						// Unknown format, mark as orphaned
 						orphanedSchedules = append(orphanedSchedules, scheduleID)
+						continue
 					}
+				} else {
+					// Old format: poll-wallet-{network}-{address}
+					assetType = ""
+					tokenMint = ""
+				}
+
+				key := network + ":" + address + ":" + assetType + ":" + tokenMint
+				if !walletsMap[key] {
+					orphanedSchedules = append(orphanedSchedules, scheduleID)
 				}
 			}
 
@@ -530,8 +577,12 @@ func reconcileCommand() *cli.Command {
 
 			if len(missingSchedules) > 0 {
 				fmt.Printf("⚠ Wallets missing schedules (%d):\n", len(missingSchedules))
-				for _, addr := range missingSchedules {
-					fmt.Printf("  - %s\n", addr)
+				for _, key := range missingSchedules {
+					if key.TokenMint != "" {
+						fmt.Printf("  - %s:%s (%s token %s)\n", key.Address, key.Network, key.AssetType, key.TokenMint[:8])
+					} else {
+						fmt.Printf("  - %s:%s (%s)\n", key.Address, key.Network, key.AssetType)
+					}
 				}
 			} else {
 				fmt.Printf("✓ All active wallets have schedules\n")
@@ -551,26 +602,17 @@ func reconcileCommand() *cli.Command {
 				fmt.Printf("\nFixing inconsistencies...\n")
 
 				// Create missing schedules
-				for _, addrNet := range missingSchedules {
-					// Parse address:network format
-					parts := strings.Split(addrNet, ":")
-					if len(parts) != 2 {
-						fmt.Printf("  ✗ Invalid wallet key format: %s\n", addrNet)
-						continue
-					}
-					addr := parts[0]
-					network := parts[1]
-
-					// Get wallet to get poll interval
-					// TODO: This needs to be updated to handle multiple assets per wallet
-					// For now, we just use empty asset_type and token_mint to get the first/default asset
-					wallet, err := store.GetWallet(ctx, addr, network, "", "")
+				for _, key := range missingSchedules {
+					// Get wallet to get poll interval and ATA
+					wallet, err := store.GetWallet(ctx, key.Address, key.Network, key.AssetType, key.TokenMint)
 					if err != nil {
-						fmt.Printf("  ✗ Failed to get wallet %s on %s: %v\n", addr, network, err)
+						fmt.Printf("  ✗ Failed to get wallet %s on %s: %v\n", key.Address, key.Network, err)
 						continue
 					}
 
-					scheduleID := "poll-wallet-" + network + "-" + addr
+					// Build asset-aware schedule ID
+					scheduleID := "poll-wallet-" + key.Network + "-" + key.Address + "-" + key.AssetType + "-" + key.TokenMint
+
 					scheduleSpec := client.ScheduleSpec{
 						Intervals: []client.ScheduleIntervalSpec{
 							{
@@ -579,12 +621,28 @@ func reconcileCommand() *cli.Command {
 						},
 					}
 
+					// Determine poll address based on asset type
+					var pollAddress string
+					if key.AssetType == "sol" {
+						pollAddress = key.Address
+					} else if wallet.AssociatedTokenAddress != nil {
+						pollAddress = *wallet.AssociatedTokenAddress
+					} else {
+						fmt.Printf("  ✗ Failed to create schedule for %s: ATA required for SPL token\n", key.Address)
+						continue
+					}
+
 					workflowAction := client.ScheduleWorkflowAction{
-						ID:        fmt.Sprintf("poll-wallet-%s", addr),
+						ID:        fmt.Sprintf("poll-wallet-%s-%s-%s", key.Network, key.Address, pollAddress),
 						Workflow:  "PollWalletWorkflow",
 						TaskQueue: c.String("task-queue"),
 						Args: []interface{}{map[string]interface{}{
-							"address": addr,
+							"wallet_address":            key.Address,
+							"network":                   key.Network,
+							"asset_type":                key.AssetType,
+							"token_mint":                key.TokenMint,
+							"associated_token_address":  wallet.AssociatedTokenAddress,
+							"poll_address":              pollAddress,
 						}},
 					}
 
@@ -593,15 +651,23 @@ func reconcileCommand() *cli.Command {
 						Spec:   scheduleSpec,
 						Action: &workflowAction,
 						Memo: map[string]interface{}{
-							"wallet_address": addr,
+							"wallet_address": key.Address,
+							"network":        key.Network,
+							"asset_type":     key.AssetType,
+							"token_mint":     key.TokenMint,
+							"poll_address":   pollAddress,
 							"created_by":     "forohtoo-cli-reconcile",
 						},
 					})
 
 					if err != nil {
-						fmt.Printf("  ✗ Failed to create schedule for %s: %v\n", addr, err)
+						fmt.Printf("  ✗ Failed to create schedule for %s: %v\n", key.Address, err)
 					} else {
-						fmt.Printf("  ✓ Created schedule for %s\n", addr)
+						if key.TokenMint != "" {
+							fmt.Printf("  ✓ Created schedule for %s (%s token %s)\n", key.Address, key.AssetType, key.TokenMint[:8])
+						} else {
+							fmt.Printf("  ✓ Created schedule for %s (%s)\n", key.Address, key.AssetType)
+						}
 					}
 				}
 
