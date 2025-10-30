@@ -508,8 +508,13 @@ func awaitCommand() *cli.Command {
 				if len(compiledJQFilters) > 0 {
 					// Parse memo as JSON for jq filtering
 					var memoJSON interface{}
-					if err := json.Unmarshal([]byte(txn.Memo), &memoJSON); err != nil {
-						// If memo is not valid JSON, jq filters will fail
+					if txn.Memo != nil {
+						if err := json.Unmarshal([]byte(*txn.Memo), &memoJSON); err != nil {
+							// If memo is not valid JSON, jq filters will fail
+							return false
+						}
+					} else {
+						// No memo, jq filters can't match
 						return false
 					}
 
@@ -694,8 +699,8 @@ func walletTransactionsCommand() *cli.Command {
 					if txn.TokenType != "" {
 						fmt.Printf("    Token:     %s\n", txn.TokenType)
 					}
-					if txn.Memo != "" {
-						fmt.Printf("    Memo:      %s\n", txn.Memo)
+					if txn.Memo != nil && *txn.Memo != "" {
+						fmt.Printf("    Memo:      %s\n", *txn.Memo)
 					}
 					if !txn.PublishedAt.IsZero() {
 						fmt.Printf("    Published: %s\n", txn.PublishedAt.Format(time.RFC3339))
@@ -734,8 +739,8 @@ func printTransactionDetailed(txn *client.Transaction) {
 		fmt.Printf("Token:       %s\n", txn.TokenType)
 	}
 
-	if txn.Memo != "" {
-		fmt.Printf("Memo:        %s\n", txn.Memo)
+	if txn.Memo != nil && *txn.Memo != "" {
+		fmt.Printf("Memo:        %s\n", *txn.Memo)
 	}
 
 	fmt.Printf("Published:   %s\n", txn.PublishedAt.Format(time.RFC3339))

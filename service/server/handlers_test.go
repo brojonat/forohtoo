@@ -51,7 +51,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
-	handler := handleRegisterWalletAsset(store, scheduler, cfg, logger)
+	handler := handleRegisterWalletAsset(store, scheduler, nil, cfg, logger)
 
 	tests := []struct {
 		name           string
@@ -221,7 +221,7 @@ func TestRegisterWallet_ValidInput(t *testing.T) {
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
-	handler := handleRegisterWalletAsset(store, scheduler, cfg, logger)
+	handler := handleRegisterWalletAsset(store, scheduler, nil, cfg, logger)
 
 	tests := []struct {
 		name     string

@@ -106,8 +106,9 @@ func handleListWalletAssets(store *db.Store, logger *slog.Logger) http.Handler {
 
 // handleRegisterWalletAsset returns a handler that registers a new wallet+asset
 // and creates a Temporal schedule for polling.
+// With payment gateway enabled, new wallets require payment first.
 // POST /api/v1/wallet-assets
-func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, cfg *config.Config, logger *slog.Logger) http.Handler {
+func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, temporalClient *temporal.Client, cfg *config.Config, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Limit request body size to prevent memory exhaustion
 		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
@@ -209,6 +210,71 @@ func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, cf
 			ata = &ataAddr
 		}
 
+		// Check if wallet exists (for payment gateway)
+		walletExists, err := store.WalletExists(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint)
+		if err != nil {
+			logger.Error("failed to check wallet existence", "address", req.Address, "error", err)
+			writeError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// If wallet doesn't exist and payment gateway is enabled, require payment
+		if !walletExists && cfg.PaymentGateway.Enabled {
+			logger.Debug("new wallet registration with payment gateway enabled",
+				"address", req.Address,
+				"network", req.Network,
+				"asset_type", req.Asset.Type,
+			)
+
+			// Generate payment invoice
+			invoice := generatePaymentInvoice(&cfg.PaymentGateway, req.Address, req.Network, req.Asset.Type, tokenMint)
+
+			// Start Temporal workflow for payment-gated registration
+			workflowID := fmt.Sprintf("payment-registration:%s", invoice.ID)
+			workflowInput := temporal.PaymentGatedRegistrationInput{
+				Address:                req.Address,
+				Network:                req.Network,
+				AssetType:              req.Asset.Type,
+				TokenMint:              tokenMint,
+				AssociatedTokenAddress: ata,
+				PollInterval:           pollInterval,
+				ServiceWallet:          cfg.PaymentGateway.ServiceWallet,
+				ServiceNetwork:         cfg.PaymentGateway.ServiceNetwork,
+				FeeAmount:              cfg.PaymentGateway.FeeAmount,
+				PaymentMemo:            invoice.Memo,
+				PaymentTimeout:         cfg.PaymentGateway.PaymentTimeout,
+			}
+
+			workflowOptions := temporal.StartWorkflowOptions{
+				ID:        workflowID,
+				TaskQueue: cfg.TemporalTaskQueue,
+			}
+
+			err = temporalClient.StartWorkflow(r.Context(), workflowOptions, "PaymentGatedRegistrationWorkflow", workflowInput)
+			if err != nil {
+				logger.Error("failed to start payment workflow", "error", err, "workflow_id", workflowID)
+				writeError(w, "failed to start payment workflow", http.StatusInternalServerError)
+				return
+			}
+
+			logger.Info("payment workflow started",
+				"workflow_id", workflowID,
+				"invoice_id", invoice.ID,
+				"address", req.Address,
+			)
+
+			// Return 402 Payment Required with invoice and workflow ID
+			response := map[string]interface{}{
+				"status":      "payment_required",
+				"invoice":     invoice,
+				"workflow_id": workflowID,
+				"status_url":  fmt.Sprintf("/api/v1/registration-status/%s", workflowID),
+			}
+			writeJSON(w, response, http.StatusPaymentRequired)
+			return
+		}
+
+		// Wallet exists or payment gateway disabled - proceed with normal upsert
 		// Upsert wallet+asset in database (create or update if exists)
 		params := db.UpsertWalletParams{
 			Address:                req.Address,
@@ -327,6 +393,87 @@ func handleUnregisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, 
 			"token_mint", tokenMint,
 		)
 		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
+// handleGetRegistrationStatus returns a handler that checks the status of a payment-gated registration workflow.
+// GET /api/v1/registration-status/{workflow_id}
+func handleGetRegistrationStatus(temporalClient *temporal.Client, logger *slog.Logger) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		workflowID := r.PathValue("workflow_id")
+
+		if workflowID == "" {
+			writeError(w, "workflow_id is required", http.StatusBadRequest)
+			return
+		}
+
+		// Query workflow execution
+		describeResp, err := temporalClient.DescribeWorkflow(r.Context(), workflowID)
+		if err != nil {
+			logger.Debug("workflow not found", "workflow_id", workflowID, "error", err)
+			writeError(w, "workflow not found", http.StatusNotFound)
+			return
+		}
+
+		// Check if workflow is still running
+		if describeResp.IsRunning {
+			logger.Debug("workflow still running", "workflow_id", workflowID)
+			writeJSON(w, map[string]interface{}{
+				"workflow_id": workflowID,
+				"status":      "pending",
+				"state":       describeResp.Status,
+			}, http.StatusOK)
+			return
+		}
+
+		// Workflow completed - get result
+		result, err := temporalClient.GetWorkflowResult(r.Context(), workflowID)
+		if err != nil {
+			logger.Error("failed to get workflow result", "workflow_id", workflowID, "error", err)
+
+			// Workflow may have failed
+			writeJSON(w, map[string]interface{}{
+				"workflow_id": workflowID,
+				"status":      "failed",
+				"error":       err.Error(),
+			}, http.StatusOK)
+			return
+		}
+
+		// Parse result as PaymentGatedRegistrationResult
+		var wfResult temporal.PaymentGatedRegistrationResult
+		if err := result.Get(&wfResult); err != nil {
+			logger.Error("failed to parse workflow result", "workflow_id", workflowID, "error", err)
+			writeJSON(w, map[string]interface{}{
+				"workflow_id": workflowID,
+				"status":      "failed",
+				"error":       "failed to parse workflow result",
+			}, http.StatusOK)
+			return
+		}
+
+		// Return workflow result
+		response := map[string]interface{}{
+			"workflow_id":        workflowID,
+			"status":             wfResult.Status,
+			"address":            wfResult.Address,
+			"network":            wfResult.Network,
+			"asset_type":         wfResult.AssetType,
+			"token_mint":         wfResult.TokenMint,
+			"payment_amount":     wfResult.PaymentAmount,
+		}
+
+		if wfResult.PaymentSignature != nil {
+			response["payment_signature"] = *wfResult.PaymentSignature
+		}
+		if !wfResult.RegisteredAt.IsZero() {
+			response["registered_at"] = wfResult.RegisteredAt
+		}
+		if wfResult.Error != nil {
+			response["error"] = *wfResult.Error
+		}
+
+		writeJSON(w, response, http.StatusOK)
 	})
 }
 

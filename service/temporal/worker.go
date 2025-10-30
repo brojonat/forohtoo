@@ -25,7 +25,9 @@ type WorkerConfig struct {
 	MainnetClient SolanaClientInterface
 	DevnetClient  SolanaClientInterface
 	Publisher     PublisherInterface
-	Metrics       *metrics.Metrics // Optional: if nil, no metrics will be recorded
+	PaymentClient PaymentClientInterface // For payment gateway
+	Scheduler     SchedulerInterface     // For registering wallet schedules
+	Metrics       *metrics.Metrics       // Optional: if nil, no metrics will be recorded
 	Logger        *slog.Logger
 }
 
@@ -83,9 +85,12 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 		MaxConcurrentWorkflowTaskExecutionSize: 10,
 	})
 
-	// Register workflow
+	// Register workflows
 	w.RegisterWorkflow(PollWalletWorkflow)
-	logger.Info("registered workflow", "name", "PollWalletWorkflow")
+	w.RegisterWorkflow(PaymentGatedRegistrationWorkflow)
+	logger.Info("registered workflows",
+		"workflows", []string{"PollWalletWorkflow", "PaymentGatedRegistrationWorkflow"},
+	)
 
 	// Create activities instance with dependencies
 	activities := NewActivities(
@@ -93,6 +98,8 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 		config.MainnetClient,
 		config.DevnetClient,
 		config.Publisher,
+		config.PaymentClient,
+		config.Scheduler,
 		config.Metrics,
 		logger,
 	)
@@ -102,9 +109,17 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 	w.RegisterActivity(activities.GetExistingTransactionSignatures)
 	w.RegisterActivity(activities.PollSolana)
 	w.RegisterActivity(activities.WriteTransactions)
+	w.RegisterActivity(activities.AwaitPayment)
+	w.RegisterActivity(activities.RegisterWallet)
 
 	logger.Info("registered activities",
-		"activities", []string{"GetExistingTransactionSignatures", "PollSolana", "WriteTransactions"},
+		"activities", []string{
+			"GetExistingTransactionSignatures",
+			"PollSolana",
+			"WriteTransactions",
+			"AwaitPayment",
+			"RegisterWallet",
+		},
 	)
 
 	return &Worker{

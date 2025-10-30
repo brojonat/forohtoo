@@ -435,8 +435,3 @@ func TestActivities_WriteTransactions_SetsConfirmationStatus(t *testing.T) {
 
 	mockStore.AssertExpectations(t)
 }
-
-// Helper function
-func stringPtr(s string) *string {
-	return &s
-}

@@ -85,6 +85,8 @@ type StoreInterface interface {
 	GetTransaction(context.Context, string, string) (*db.Transaction, error)
 	GetWallet(context.Context, string, string, string, string) (*db.Wallet, error)
 	GetTransactionSignaturesByWallet(context.Context, string, string, *time.Time, int32) ([]string, error)
+	UpsertWallet(context.Context, db.UpsertWalletParams) (*db.Wallet, error)
+	DeleteWallet(context.Context, string, string, string, string) error
 }
 
 // SolanaClientInterface defines the Solana operations needed by activities.
@@ -107,8 +109,38 @@ type Activities struct {
 	mainnetClient      SolanaClientInterface
 	devnetClient       SolanaClientInterface
 	publisher          PublisherInterface
+	paymentClient      PaymentClientInterface // For payment gateway awaiting payments
+	scheduler          SchedulerInterface     // For creating/deleting wallet schedules
 	metrics            *metrics.Metrics
 	logger             *slog.Logger
+}
+
+// PaymentClientInterface defines the interface for awaiting payments.
+// This allows for easy mocking in tests.
+type PaymentClientInterface interface {
+	Await(ctx context.Context, address string, network string, lookback time.Duration, matcher func(*Transaction) bool) (*Transaction, error)
+}
+
+// Transaction represents a transaction from the client package.
+// We define it here to avoid circular imports between temporal and client packages.
+type Transaction struct {
+	Signature          string
+	Slot               int64
+	WalletAddress      string
+	FromAddress        *string
+	Amount             int64
+	TokenType          string
+	Memo               *string
+	Timestamp          time.Time
+	BlockTime          time.Time
+	ConfirmationStatus string
+	PublishedAt        time.Time
+}
+
+// SchedulerInterface defines the scheduler operations needed by activities.
+type SchedulerInterface interface {
+	UpsertWalletAssetSchedule(ctx context.Context, address, network, assetType, tokenMint string, ata *string, pollInterval time.Duration) error
+	DeleteWalletAssetSchedule(ctx context.Context, address, network, assetType, tokenMint string) error
 }
 
 // NewActivities creates a new Activities instance with explicit dependencies.
@@ -118,6 +150,8 @@ func NewActivities(
 	mainnetClient SolanaClientInterface,
 	devnetClient SolanaClientInterface,
 	publisher PublisherInterface,
+	paymentClient PaymentClientInterface,
+	scheduler SchedulerInterface,
 	m *metrics.Metrics,
 	logger *slog.Logger,
 ) *Activities {
@@ -129,6 +163,8 @@ func NewActivities(
 		mainnetClient: mainnetClient,
 		devnetClient:  devnetClient,
 		publisher:     publisher,
+		paymentClient: paymentClient,
+		scheduler:     scheduler,
 		metrics:       m,
 		logger:        logger,
 	}

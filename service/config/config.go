@@ -36,6 +36,21 @@ type Config struct {
 	// Polling configuration
 	DefaultPollInterval time.Duration
 	MinPollInterval     time.Duration
+
+	// Payment gateway configuration
+	PaymentGateway PaymentGatewayConfig
+}
+
+// PaymentGatewayConfig holds payment gateway settings for wallet registration fees.
+type PaymentGatewayConfig struct {
+	Enabled         bool          `json:"enabled"`           // Enable payment gateway
+	ServiceWallet   string        `json:"service_wallet"`    // Forohtoo's wallet address for receiving payments
+	ServiceNetwork  string        `json:"service_network"`   // "mainnet" or "devnet"
+	FeeAmount       int64         `json:"fee_amount"`        // Registration fee in lamports (default: 1000000 = 0.001 SOL)
+	FeeAssetType    string        `json:"fee_asset_type"`    // "sol" or "spl-token"
+	FeeTokenMint    string        `json:"fee_token_mint"`    // Token mint address for SPL token fees (empty for SOL)
+	PaymentTimeout  time.Duration `json:"payment_timeout"`   // How long to wait for payment (default: 24h)
+	MemoPrefix      string        `json:"memo_prefix"`       // Prefix for payment memos (default: "forohtoo-reg:")
 }
 
 // Load reads configuration from environment variables and validates all required fields.
@@ -113,6 +128,12 @@ func Load() (*Config, error) {
 	if cfg.MinPollInterval > cfg.DefaultPollInterval {
 		errs = append(errs, fmt.Errorf("MIN_POLL_INTERVAL (%v) cannot be greater than DEFAULT_POLL_INTERVAL (%v)",
 			cfg.MinPollInterval, cfg.DefaultPollInterval))
+	}
+
+	// Payment gateway configuration
+	cfg.PaymentGateway = loadPaymentGatewayConfig()
+	if err := cfg.PaymentGateway.Validate(); err != nil {
+		errs = append(errs, err)
 	}
 
 	// Return all validation errors
@@ -252,4 +273,130 @@ func (c *Config) GetUSDCMintForNetwork(network string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported network: %s", network)
 	}
+}
+
+// LoadDefaults sets default values for payment gateway configuration.
+func (p *PaymentGatewayConfig) LoadDefaults() {
+	p.Enabled = false
+	p.FeeAmount = 1000000 // 0.001 SOL
+	p.FeeAssetType = "sol"
+	p.PaymentTimeout = 24 * time.Hour
+	p.MemoPrefix = "forohtoo-reg:"
+	p.ServiceNetwork = "mainnet"
+}
+
+// LoadFromEnv loads payment gateway configuration from environment variables.
+func (p *PaymentGatewayConfig) LoadFromEnv() error {
+	// Load defaults first
+	p.LoadDefaults()
+
+	// Override with environment variables
+	if os.Getenv("PAYMENT_GATEWAY_ENABLED") == "true" {
+		p.Enabled = true
+	}
+
+	p.ServiceWallet = os.Getenv("PAYMENT_GATEWAY_SERVICE_WALLET")
+
+	if network := os.Getenv("PAYMENT_GATEWAY_SERVICE_NETWORK"); network != "" {
+		p.ServiceNetwork = network
+	}
+
+	// Parse FeeAmount
+	if feeAmountStr := os.Getenv("PAYMENT_GATEWAY_FEE_AMOUNT"); feeAmountStr != "" {
+		parsed, err := strconv.ParseInt(feeAmountStr, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid PAYMENT_GATEWAY_FEE_AMOUNT: %w", err)
+		}
+		p.FeeAmount = parsed
+	}
+
+	if assetType := os.Getenv("PAYMENT_GATEWAY_FEE_ASSET_TYPE"); assetType != "" {
+		p.FeeAssetType = assetType
+	}
+
+	p.FeeTokenMint = os.Getenv("PAYMENT_GATEWAY_FEE_TOKEN_MINT")
+
+	// Parse PaymentTimeout
+	if timeoutStr := os.Getenv("PAYMENT_GATEWAY_PAYMENT_TIMEOUT"); timeoutStr != "" {
+		parsed, err := time.ParseDuration(timeoutStr)
+		if err != nil {
+			return fmt.Errorf("invalid PAYMENT_GATEWAY_PAYMENT_TIMEOUT: %w", err)
+		}
+		p.PaymentTimeout = parsed
+	}
+
+	// Memo prefix
+	if prefix := os.Getenv("PAYMENT_GATEWAY_MEMO_PREFIX"); prefix != "" {
+		p.MemoPrefix = prefix
+	}
+
+	return nil
+}
+
+// loadPaymentGatewayConfig loads payment gateway configuration from environment variables.
+func loadPaymentGatewayConfig() PaymentGatewayConfig {
+	var cfg PaymentGatewayConfig
+	cfg.LoadFromEnv() // Ignore error here, validation happens separately
+	return cfg
+}
+
+// Validate checks if the PaymentGatewayConfig is valid.
+func (p *PaymentGatewayConfig) Validate() error {
+	if !p.Enabled {
+		// If disabled, no validation needed
+		return nil
+	}
+
+	var errs []error
+
+	// ServiceWallet is required when enabled
+	if p.ServiceWallet == "" {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_SERVICE_WALLET is required when payment gateway is enabled"))
+	}
+
+	// ServiceWallet must be valid Solana address (32-44 characters, base58)
+	if p.ServiceWallet != "" && (len(p.ServiceWallet) < 32 || len(p.ServiceWallet) > 44) {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_SERVICE_WALLET must be a valid Solana address (32-44 characters)"))
+	}
+
+	// ServiceNetwork must be mainnet or devnet
+	if p.ServiceNetwork != "mainnet" && p.ServiceNetwork != "devnet" {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_SERVICE_NETWORK must be 'mainnet' or 'devnet'"))
+	}
+
+	// FeeAmount must be positive
+	if p.FeeAmount <= 0 {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_FEE_AMOUNT must be positive"))
+	}
+
+	// FeeAssetType must be sol or spl-token
+	if p.FeeAssetType != "sol" && p.FeeAssetType != "spl-token" {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_FEE_ASSET_TYPE must be 'sol' or 'spl-token'"))
+	}
+
+	// If FeeAssetType is spl-token, FeeTokenMint is required and must be valid
+	if p.FeeAssetType == "spl-token" {
+		if p.FeeTokenMint == "" {
+			errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_FEE_TOKEN_MINT is required when FEE_ASSET_TYPE is 'spl-token'"))
+		} else if len(p.FeeTokenMint) < 32 || len(p.FeeTokenMint) > 44 {
+			// Basic validation: Solana addresses are 32-44 characters (base58)
+			errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_FEE_TOKEN_MINT must be a valid Solana address (32-44 characters)"))
+		}
+	}
+
+	// PaymentTimeout must be positive
+	if p.PaymentTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_PAYMENT_TIMEOUT must be positive"))
+	}
+
+	// MemoPrefix should not be empty
+	if p.MemoPrefix == "" {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_MEMO_PREFIX should not be empty"))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("payment gateway configuration validation failed: %v", errs)
+	}
+
+	return nil
 }

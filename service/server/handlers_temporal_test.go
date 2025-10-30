@@ -27,7 +27,7 @@ func TestRegisterWallet_CreatesTemporalSchedule(t *testing.T) {
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
-	handler := handleRegisterWalletAsset(store, scheduler, cfg, logger)
+	handler := handleRegisterWalletAsset(store, scheduler, nil, cfg, logger)
 
 	tests := []struct {
 		name      string
@@ -98,7 +98,7 @@ func TestRegisterWallet_TemporalFailure(t *testing.T) {
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
-	handler := handleRegisterWalletAsset(store, scheduler, cfg, logger)
+	handler := handleRegisterWalletAsset(store, scheduler, nil, cfg, logger)
 
 	// Make scheduler return an error
 	scheduler.SetCreateError(fmt.Errorf("temporal service unavailable"))
@@ -232,7 +232,7 @@ func TestRegisterWallet_UpsertBehavior(t *testing.T) {
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
-	handler := handleRegisterWalletAsset(store, scheduler, cfg, logger)
+	handler := handleRegisterWalletAsset(store, scheduler, nil, cfg, logger)
 
 	address := "Vote111111111111111111111111111111111111111"
 	network := "mainnet"
