@@ -77,8 +77,8 @@ func main() {
 	defer ssePublisher.Close()
 	logger.Info("connected to NATS for SSE streaming", "url", cfg.NATSURL)
 
-	// Initialize HTTP server with scheduler, SSE publisher, and metrics
-	httpServer := server.New(cfg.ServerAddr, cfg, store, temporalClient, temporalClient, ssePublisher, metricsCollector, logger)
+	// Initialize HTTP server with temporal client, SSE publisher, and metrics
+	httpServer := server.New(cfg.ServerAddr, cfg, store, temporalClient, ssePublisher, metricsCollector, logger)
 
 	// Enable HTML template rendering from embedded files
 	if err := httpServer.WithTemplates(); err != nil {

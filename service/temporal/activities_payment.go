@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/brojonat/forohtoo/client"
 	"github.com/brojonat/forohtoo/service/db"
 	"go.temporal.io/sdk/activity"
 )
@@ -73,12 +74,12 @@ func (a *Activities) AwaitPayment(ctx context.Context, input AwaitPaymentInput) 
 		}
 	}()
 
-	// Use client library to await payment
-	if a.paymentClient == nil {
-		return nil, fmt.Errorf("payment client not configured in activities")
+	// Use forohtoo client to await payment
+	if a.forohtooClient == nil {
+		return nil, fmt.Errorf("forohtoo client not configured in activities")
 	}
 
-	txn, err := a.paymentClient.Await(ctx, input.PayToAddress, input.Network, input.LookbackPeriod, func(t *Transaction) bool {
+	txn, err := a.forohtooClient.Await(ctx, input.PayToAddress, input.Network, input.LookbackPeriod, func(t *client.Transaction) bool {
 		// Match on memo and minimum amount
 		meetsAmount := t.Amount >= input.Amount
 		matchesMemo := t.Memo != nil && *t.Memo == input.Memo
@@ -142,13 +143,13 @@ func (a *Activities) RegisterWallet(ctx context.Context, input RegisterWalletInp
 	}
 
 	// Create Temporal schedule for polling
-	if a.scheduler == nil {
+	if a.temporalClient == nil {
 		// Rollback wallet creation
 		a.store.DeleteWallet(ctx, input.Address, input.Network, input.AssetType, input.TokenMint)
-		return nil, fmt.Errorf("scheduler not configured in activities")
+		return nil, fmt.Errorf("temporal client not configured in activities")
 	}
 
-	err = a.scheduler.UpsertWalletAssetSchedule(ctx,
+	err = a.temporalClient.UpsertWalletAssetSchedule(ctx,
 		input.Address,
 		input.Network,
 		input.AssetType,

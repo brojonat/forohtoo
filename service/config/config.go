@@ -11,8 +11,9 @@ import (
 // All required fields are validated at startup to ensure fail-fast behavior.
 type Config struct {
 	// Server configuration
-	ServerAddr string
-	LogLevel   string
+	ServerAddr        string
+	LogLevel          string
+	ForohtooServerURL string // URL of the forohtoo server for SSE streaming
 
 	// Database configuration
 	DatabaseURL string
@@ -61,6 +62,7 @@ func Load() (*Config, error) {
 	// Server configuration
 	cfg.ServerAddr = getEnvOrDefault("SERVER_ADDR", ":8080")
 	cfg.LogLevel = getEnvOrDefault("LOG_LEVEL", "info")
+	cfg.ForohtooServerURL = getEnvOrDefault("FOROHTOO_SERVER_URL", "http://localhost:8080")
 
 	// Database configuration
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")

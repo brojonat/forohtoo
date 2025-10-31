@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	forohtoo "github.com/brojonat/forohtoo/client"
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
 	"github.com/brojonat/forohtoo/service/metrics"
@@ -107,6 +108,27 @@ func main() {
 	defer natsPublisher.Close()
 	logger.Info("connected to NATS", "url", cfg.NATSURL)
 
+	// Initialize forohtoo client for awaiting payment transactions
+	forohtooClient := forohtoo.NewClient(cfg.ForohtooServerURL, nil, logger) // nil = default http.Client
+	logger.Info("initialized forohtoo client", "server_url", cfg.ForohtooServerURL)
+
+	// Initialize Temporal client for schedule management
+	temporalClient, err := temporal.NewClient(
+		cfg.TemporalHost,
+		cfg.TemporalNamespace,
+		cfg.TemporalTaskQueue,
+		logger,
+	)
+	if err != nil {
+		logger.Error("failed to create temporal client", "error", err)
+		os.Exit(1)
+	}
+	defer temporalClient.Close()
+	logger.Info("connected to temporal for schedule management",
+		"host", cfg.TemporalHost,
+		"namespace", cfg.TemporalNamespace,
+	)
+
 	// Initialize Temporal worker
 	workerConfig := temporal.WorkerConfig{
 		TemporalHost:           cfg.TemporalHost,
@@ -118,6 +140,8 @@ func main() {
 		MainnetClient:          mainnetClient,
 		DevnetClient:           devnetClient,
 		Publisher:              natsPublisher,
+		ForohtooClient:         forohtooClient,
+		TemporalClient:         temporalClient,
 		Metrics:                metricsCollector,
 		Logger:                 logger,
 	}

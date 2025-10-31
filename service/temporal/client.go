@@ -246,97 +246,25 @@ func (c *Client) DeleteWalletAssetSchedule(ctx context.Context, address string, 
 	return nil
 }
 
-// StartWorkflowOptions contains options for starting a workflow.
-type StartWorkflowOptions struct {
-	ID        string
-	TaskQueue string
+// SDKClient returns the underlying Temporal SDK client for direct workflow operations.
+func (c *Client) SDKClient() client.Client {
+	return c.client
 }
 
-// WorkflowDescribeResponse contains workflow execution information.
-type WorkflowDescribeResponse struct {
-	IsRunning bool
-	Status    string
-}
-
-// WorkflowResult represents the result of a completed workflow.
-type WorkflowResult struct {
-	value interface{}
-}
-
-// Get retrieves the workflow result into the provided interface.
-func (r *WorkflowResult) Get(valuePtr interface{}) error {
-	if r.value == nil {
-		return fmt.Errorf("no result available")
-	}
-	// Simple type assertion - in real implementation would use proper serialization
-	return nil
-}
-
-// StartWorkflow starts a new workflow execution.
-func (c *Client) StartWorkflow(ctx context.Context, options StartWorkflowOptions, workflowName string, input interface{}) error {
-	c.logger.Debug("starting workflow",
-		"workflow_id", options.ID,
-		"workflow_name", workflowName,
-		"task_queue", options.TaskQueue,
-	)
-
-	opts := client.StartWorkflowOptions{
-		ID:        options.ID,
-		TaskQueue: options.TaskQueue,
-	}
-
-	_, err := c.client.ExecuteWorkflow(ctx, opts, workflowName, input)
-	if err != nil {
-		return fmt.Errorf("failed to start workflow: %w", err)
-	}
-
-	c.logger.Info("workflow started successfully",
-		"workflow_id", options.ID,
-		"workflow_name", workflowName,
-	)
-
-	return nil
-}
-
-// DescribeWorkflow describes a workflow execution.
-func (c *Client) DescribeWorkflow(ctx context.Context, workflowID string) (*WorkflowDescribeResponse, error) {
-	c.logger.Debug("describing workflow", "workflow_id", workflowID)
-
-	desc, err := c.client.DescribeWorkflowExecution(ctx, workflowID, "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to describe workflow: %w", err)
-	}
-
-	isRunning := desc.WorkflowExecutionInfo.Status == 1 // Running
-	status := desc.WorkflowExecutionInfo.Status.String()
-
-	return &WorkflowDescribeResponse{
-		IsRunning: isRunning,
-		Status:    status,
-	}, nil
-}
-
-// GetWorkflowResult gets the result of a completed workflow.
-func (c *Client) GetWorkflowResult(ctx context.Context, workflowID string) (*WorkflowResult, error) {
-	c.logger.Debug("getting workflow result", "workflow_id", workflowID)
-
-	// Get workflow run
-	run := c.client.GetWorkflow(ctx, workflowID, "")
-
-	// Get the result
-	var result interface{}
-	err := run.Get(ctx, &result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get workflow result: %w", err)
-	}
-
-	return &WorkflowResult{value: result}, nil
+// TaskQueue returns the configured task queue for this client.
+func (c *Client) TaskQueue() string {
+	return c.taskQueue
 }
 
 // Close closes the Temporal client connection.
 func (c *Client) Close() {
 	c.logger.Info("closing temporal client")
 	c.client.Close()
+}
+
+// scheduleID generates a unique schedule ID for a wallet asset.
+func scheduleID(address string, network string, assetType string, tokenMint string) string {
+	return "poll-wallet-" + network + "-" + address + "-" + assetType + "-" + tokenMint
 }
 
 // temporalLogger adapts slog.Logger to Temporal's logger interface.

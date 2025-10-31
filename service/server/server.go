@@ -19,7 +19,6 @@ type Server struct {
 	addr           string
 	cfg            *config.Config
 	store          *db.Store
-	scheduler      temporal.Scheduler
 	temporalClient *temporal.Client
 	ssePublisher   *SSEPublisher
 	renderer       *TemplateRenderer
@@ -29,17 +28,15 @@ type Server struct {
 }
 
 // New creates a new HTTP server with the given dependencies.
-// The scheduler is used to create/delete Temporal schedules for wallet polling.
-// The temporalClient is used for starting workflows and querying workflow status.
+// The temporalClient is used for managing Temporal schedules, starting workflows, and querying workflow status.
 // The ssePublisher is optional - if nil, SSE endpoints won't be available.
 // The renderer is optional - if nil, HTML endpoints won't be available.
 // The metrics is optional - if nil, metrics endpoints won't be available.
-func New(addr string, cfg *config.Config, store *db.Store, scheduler temporal.Scheduler, temporalClient *temporal.Client, ssePublisher *SSEPublisher, m *metrics.Metrics, logger *slog.Logger) *Server {
+func New(addr string, cfg *config.Config, store *db.Store, temporalClient *temporal.Client, ssePublisher *SSEPublisher, m *metrics.Metrics, logger *slog.Logger) *Server {
 	return &Server{
 		addr:           addr,
 		cfg:            cfg,
 		store:          store,
-		scheduler:      scheduler,
 		temporalClient: temporalClient,
 		ssePublisher:   ssePublisher,
 		metrics:        m,
@@ -68,8 +65,8 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
 	// Wallet asset routes
-	mux.Handle("POST /api/v1/wallet-assets", handleRegisterWalletAsset(s.store, s.scheduler, s.temporalClient, s.cfg, s.logger))
-	mux.Handle("DELETE /api/v1/wallet-assets/{address}", handleUnregisterWalletAsset(s.store, s.scheduler, s.logger))
+	mux.Handle("POST /api/v1/wallet-assets", handleRegisterWalletAsset(s.store, s.temporalClient, s.cfg, s.logger))
+	mux.Handle("DELETE /api/v1/wallet-assets/{address}", handleUnregisterWalletAsset(s.store, s.temporalClient, s.logger))
 	mux.Handle("GET /api/v1/wallet-assets/{address}", handleGetWalletAsset(s.store, s.logger))
 	mux.Handle("GET /api/v1/wallet-assets", handleListWalletAssets(s.store, s.logger))
 	mux.Handle("GET /api/v1/transactions", handleListTransactions(s.store, s.logger))
@@ -175,10 +172,10 @@ func (s *Server) ensureServiceWalletRegistered(ctx context.Context) error {
 	}
 	ata := &ataAddr
 
-	// Use a reasonable poll interval for service wallet (30s default)
+	// Use a reasonable poll interval for service wallet (1m default)
 	pollInterval := s.cfg.DefaultPollInterval
 	if pollInterval == 0 {
-		pollInterval = 30 * time.Second
+		pollInterval = 1 * time.Minute
 	}
 
 	// Create wallet in database
@@ -196,7 +193,7 @@ func (s *Server) ensureServiceWalletRegistered(ctx context.Context) error {
 	}
 
 	// Create Temporal schedule
-	if err := s.scheduler.UpsertWalletAssetSchedule(ctx, serviceWallet, serviceNetwork, assetType, tokenMint, ata, pollInterval); err != nil {
+	if err := s.temporalClient.UpsertWalletAssetSchedule(ctx, serviceWallet, serviceNetwork, assetType, tokenMint, ata, pollInterval); err != nil {
 		// Rollback wallet creation
 		s.store.DeleteWallet(ctx, serviceWallet, serviceNetwork, assetType, tokenMint)
 		return fmt.Errorf("failed to create schedule for service wallet: %w", err)

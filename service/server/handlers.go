@@ -14,6 +14,7 @@ import (
 	"github.com/brojonat/forohtoo/service/db"
 	"github.com/brojonat/forohtoo/service/temporal"
 	solanago "github.com/gagliardetto/solana-go"
+	"go.temporal.io/sdk/client"
 )
 
 const (
@@ -108,7 +109,7 @@ func handleListWalletAssets(store *db.Store, logger *slog.Logger) http.Handler {
 // and creates a Temporal schedule for polling.
 // With payment gateway enabled, new wallets require payment first.
 // POST /api/v1/wallet-assets
-func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, temporalClient *temporal.Client, cfg *config.Config, logger *slog.Logger) http.Handler {
+func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client, cfg *config.Config, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Limit request body size to prevent memory exhaustion
 		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
@@ -254,12 +255,14 @@ func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, te
 				PaymentTimeout:         cfg.PaymentGateway.PaymentTimeout,
 			}
 
-			workflowOptions := temporal.StartWorkflowOptions{
+			// Use SDK client directly for workflow operations
+			sdkClient := temporalClient.SDKClient()
+			workflowOptions := client.StartWorkflowOptions{
 				ID:        workflowID,
 				TaskQueue: cfg.TemporalTaskQueue,
 			}
 
-			err = temporalClient.StartWorkflow(r.Context(), workflowOptions, "PaymentGatedRegistrationWorkflow", workflowInput)
+			_, err = sdkClient.ExecuteWorkflow(r.Context(), workflowOptions, "PaymentGatedRegistrationWorkflow", workflowInput)
 			if err != nil {
 				logger.Error("failed to start payment workflow", "error", err, "workflow_id", workflowID)
 				writeError(w, "failed to start payment workflow", http.StatusInternalServerError)
@@ -303,7 +306,7 @@ func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, te
 		}
 
 		// Upsert Temporal schedule (create or update if exists)
-		if err := scheduler.UpsertWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, pollInterval); err != nil {
+		if err := temporalClient.UpsertWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, pollInterval); err != nil {
 			logger.Error("failed to upsert schedule", "address", req.Address, "network", req.Network, "error", err)
 
 			// Rollback: delete the wallet asset we just created/updated
@@ -332,7 +335,7 @@ func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, te
 // handleUnregisterWalletAsset returns a handler that unregisters a wallet+asset
 // and deletes its Temporal schedule.
 // DELETE /api/v1/wallet-assets/{address}?network={network}&asset_type={type}&token_mint={mint}
-func handleUnregisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, logger *slog.Logger) http.Handler {
+func handleUnregisterWalletAsset(store *db.Store, temporalClient *temporal.Client, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		address := r.PathValue("address")
 		network := r.URL.Query().Get("network")
@@ -380,7 +383,7 @@ func handleUnregisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, 
 
 		// Delete Temporal schedule first (before DB)
 		// If this fails, we don't want to delete the wallet asset from DB
-		if err := scheduler.DeleteWalletAssetSchedule(r.Context(), address, network, assetType, tokenMint); err != nil {
+		if err := temporalClient.DeleteWalletAssetSchedule(r.Context(), address, network, assetType, tokenMint); err != nil {
 			logger.Error("failed to delete schedule", "address", address, "network", network, "error", err)
 			writeError(w, "failed to delete schedule for wallet asset", http.StatusInternalServerError)
 			return
@@ -416,28 +419,31 @@ func handleGetRegistrationStatus(temporalClient *temporal.Client, logger *slog.L
 			return
 		}
 
-		// Query workflow execution
-		describeResp, err := temporalClient.DescribeWorkflow(r.Context(), workflowID)
+		// Query workflow execution using SDK client directly
+		sdkClient := temporalClient.SDKClient()
+		describeResp, err := sdkClient.DescribeWorkflowExecution(r.Context(), workflowID, "")
 		if err != nil {
 			logger.Debug("workflow not found", "workflow_id", workflowID, "error", err)
 			writeError(w, "workflow not found", http.StatusNotFound)
 			return
 		}
 
-		// Check if workflow is still running
-		if describeResp.IsRunning {
+		// Check if workflow is still running (status 1 = Running)
+		isRunning := describeResp.WorkflowExecutionInfo.Status == 1
+		if isRunning {
 			logger.Debug("workflow still running", "workflow_id", workflowID)
 			writeJSON(w, map[string]interface{}{
 				"workflow_id": workflowID,
 				"status":      "pending",
-				"state":       describeResp.Status,
+				"state":       describeResp.WorkflowExecutionInfo.Status.String(),
 			}, http.StatusOK)
 			return
 		}
 
-		// Workflow completed - get result
-		result, err := temporalClient.GetWorkflowResult(r.Context(), workflowID)
-		if err != nil {
+		// Workflow completed - get result using SDK client
+		workflowRun := sdkClient.GetWorkflow(r.Context(), workflowID, "")
+		var wfResult temporal.PaymentGatedRegistrationResult
+		if err := workflowRun.Get(r.Context(), &wfResult); err != nil {
 			logger.Error("failed to get workflow result", "workflow_id", workflowID, "error", err)
 
 			// Workflow may have failed
@@ -445,18 +451,6 @@ func handleGetRegistrationStatus(temporalClient *temporal.Client, logger *slog.L
 				"workflow_id": workflowID,
 				"status":      "failed",
 				"error":       err.Error(),
-			}, http.StatusOK)
-			return
-		}
-
-		// Parse result as PaymentGatedRegistrationResult
-		var wfResult temporal.PaymentGatedRegistrationResult
-		if err := result.Get(&wfResult); err != nil {
-			logger.Error("failed to parse workflow result", "workflow_id", workflowID, "error", err)
-			writeJSON(w, map[string]interface{}{
-				"workflow_id": workflowID,
-				"status":      "failed",
-				"error":       "failed to parse workflow result",
 			}, http.StatusOK)
 			return
 		}

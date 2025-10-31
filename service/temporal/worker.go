@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	forohtoo "github.com/brojonat/forohtoo/client"
 	"github.com/brojonat/forohtoo/service/metrics"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -21,14 +22,14 @@ type WorkerConfig struct {
 	USDCDevnetMintAddress  string // SPL token mint address for USDC on devnet
 
 	// Dependencies
-	Store         StoreInterface
-	MainnetClient SolanaClientInterface
-	DevnetClient  SolanaClientInterface
-	Publisher     PublisherInterface
-	PaymentClient PaymentClientInterface // For payment gateway
-	Scheduler     SchedulerInterface     // For registering wallet schedules
-	Metrics       *metrics.Metrics       // Optional: if nil, no metrics will be recorded
-	Logger        *slog.Logger
+	Store          StoreInterface
+	MainnetClient  SolanaClientInterface
+	DevnetClient   SolanaClientInterface
+	Publisher      PublisherInterface
+	ForohtooClient *forohtoo.Client // Forohtoo client for awaiting payment transactions
+	TemporalClient *Client          // Temporal client for creating wallet schedules
+	Metrics        *metrics.Metrics // Optional: if nil, no metrics will be recorded
+	Logger         *slog.Logger
 }
 
 // Worker wraps a Temporal worker and provides lifecycle management.
@@ -98,8 +99,8 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 		config.MainnetClient,
 		config.DevnetClient,
 		config.Publisher,
-		config.PaymentClient,
-		config.Scheduler,
+		config.ForohtooClient,
+		config.TemporalClient,
 		config.Metrics,
 		logger,
 	)
