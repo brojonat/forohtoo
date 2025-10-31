@@ -2,18 +2,18 @@ package server
 
 import (
 	"encoding/base64"
-	"github.com/brojonat/forohtoo/service/config"
 	"image/png"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/brojonat/forohtoo/service/config"
 )
 
 // TestGeneratePaymentInvoice tests basic invoice generation for USDC payments.
 func TestGeneratePaymentInvoice(t *testing.T) {
+	walletAddress := "TestWalletAddress123456789012345678901234"
 	usdcMint := "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" // USDC mainnet
 	cfg := &config.PaymentGatewayConfig{
 		ServiceWallet:  "FoRoHtOoWaLLeTaDdReSs1234567890123456789012",
@@ -24,13 +24,12 @@ func TestGeneratePaymentInvoice(t *testing.T) {
 	}
 
 	beforeGeneration := time.Now()
-	invoice := generatePaymentInvoice(cfg, usdcMint)
+	invoice := generatePaymentInvoice(cfg, walletAddress, usdcMint)
 	afterGeneration := time.Now()
 
-	// Verify invoice ID is valid UUID
-	_, err := uuid.Parse(invoice.ID)
-	if err != nil {
-		t.Errorf("Invoice ID should be valid UUID, got %q: %v", invoice.ID, err)
+	// Verify invoice ID is the wallet address
+	if invoice.ID != walletAddress {
+		t.Errorf("Expected invoice ID to be wallet address %q, got %q", walletAddress, invoice.ID)
 	}
 
 	// Verify memo format
@@ -103,7 +102,7 @@ func TestGeneratePaymentInvoice(t *testing.T) {
 	if invoice.QRCodeData == "" {
 		t.Error("QRCodeData should not be empty")
 	}
-	_, err = base64.StdEncoding.DecodeString(invoice.QRCodeData)
+	_, err := base64.StdEncoding.DecodeString(invoice.QRCodeData)
 	if err != nil {
 		t.Errorf("QRCodeData should be valid base64: %v", err)
 	}

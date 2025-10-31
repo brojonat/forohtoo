@@ -235,7 +235,8 @@ func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, te
 			}
 
 			// Generate payment invoice (always in USDC)
-			invoice := generatePaymentInvoice(&cfg.PaymentGateway, usdcMint)
+			// Invoice ID is the wallet address being registered
+			invoice := generatePaymentInvoice(&cfg.PaymentGateway, req.Address, usdcMint)
 
 			// Start Temporal workflow for payment-gated registration
 			workflowID := fmt.Sprintf("payment-registration:%s", invoice.ID)

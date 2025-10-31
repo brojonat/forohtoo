@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/skip2/go-qrcode"
 
 	"github.com/brojonat/forohtoo/service/config"
@@ -15,7 +14,7 @@ import (
 // Invoice represents a payment invoice for wallet registration.
 // All payments are in USDC.
 type Invoice struct {
-	ID           string        `json:"id"`             // Unique invoice ID (UUID)
+	ID           string        `json:"id"`             // Invoice ID (wallet address being registered)
 	PayToAddress string        `json:"pay_to_address"` // Forohtoo's wallet
 	Network      string        `json:"network"`        // "mainnet" or "devnet"
 	USDCMint     string        `json:"usdc_mint"`      // USDC token mint address for the network
@@ -32,8 +31,9 @@ type Invoice struct {
 
 // generatePaymentInvoice creates a new payment invoice for wallet registration.
 // Payment is always in USDC for the specified network.
-func generatePaymentInvoice(cfg *config.PaymentGatewayConfig, usdcMint string) Invoice {
-	invoiceID := uuid.New().String()
+// The invoice ID is the wallet address being registered (ensures uniqueness and traceability).
+func generatePaymentInvoice(cfg *config.PaymentGatewayConfig, walletAddress, usdcMint string) Invoice {
+	invoiceID := walletAddress
 	memo := fmt.Sprintf("%s%s", cfg.MemoPrefix, invoiceID)
 	now := time.Now()
 
