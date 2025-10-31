@@ -620,6 +620,109 @@ make test-integration
 
 See [TESTING.md](./TESTING.md) for detailed testing instructions.
 
+#### Integration Tests
+
+The codebase includes comprehensive integration tests for payment gateway functionality and Temporal workflows. These tests use real infrastructure (database, Temporal, etc.) instead of mocks.
+
+**Test Levels:**
+
+1. **Basic Integration Tests** (`RUN_INTEGRATION_TESTS=1`)
+   - HTTP API endpoints with Temporal schedule creation
+   - Wallet registration/unregistration flows
+   - Activity tests with real database
+   - Workflow lifecycle tests
+
+2. **Payment Integration Tests** (`RUN_PAYMENT_INTEGRATION_TESTS=1`)
+   - Full payment-gated registration workflow
+   - SSE payment monitoring with real Solana transactions
+   - Payment timeout handling
+   - Historical payment detection
+
+3. **Recovery Integration Tests** (`RUN_RECOVERY_INTEGRATION_TESTS=1`)
+   - Workflow recovery after worker restarts
+   - State persistence validation
+   - Long-running payment wait recovery
+
+**Infrastructure Requirements:**
+
+- **PostgreSQL**: Database for wallet and transaction storage
+  - Default test URL: `postgres://postgres:postgres@localhost:15432/forohtoo_test?sslmode=disable`
+  - Override with `TEST_DATABASE_URL`
+
+- **Temporal Server**: Workflow orchestration
+  - Configured via `TEMPORAL_HOST` and `TEMPORAL_NAMESPACE` in config
+  - Default: `localhost:7233`
+
+- **Temporal Worker**: Must be running to process workflows
+  - Required for workflow execution tests
+  - Start with `make run-worker` or in test environment
+
+- **Forohtoo Server**: For SSE payment monitoring
+  - Default: `http://localhost:18000`
+  - Override with `FOROHTOO_SERVER_URL`
+
+- **Solana Network**: For payment transaction tests
+  - Devnet recommended for testing
+  - Requires `TEST_SERVICE_WALLET` for payment tests
+
+**Running Integration Tests:**
+
+```bash
+# Basic integration tests only (no actual payments)
+RUN_INTEGRATION_TESTS=1 go test ./service/temporal/... ./service/server/...
+
+# Full payment integration tests (requires running infrastructure)
+RUN_INTEGRATION_TESTS=1 \
+RUN_PAYMENT_INTEGRATION_TESTS=1 \
+TEST_DATABASE_URL="postgres://..." \
+FOROHTOO_SERVER_URL="http://localhost:18000" \
+TEST_SERVICE_WALLET="YourTestWallet..." \
+go test ./service/temporal/... ./service/server/...
+
+# Recovery tests (requires orchestration capabilities)
+RUN_RECOVERY_INTEGRATION_TESTS=1 go test ./service/temporal/...
+```
+
+**Test Files:**
+
+- `service/temporal/activities_payment_integration_test.go` - Activity tests (AwaitPayment, RegisterWallet)
+- `service/temporal/workflow_payment_integration_test.go` - Workflow execution tests
+- `service/temporal/workflow_payment_edge_cases_integration_test.go` - Edge cases (concurrent, duplicates, invalid payments)
+- `service/server/handlers_temporal_integration_test.go` - HTTP API integration tests
+
+**Caveats:**
+
+- Tests skip gracefully when required infrastructure is unavailable
+- Payment integration tests require actual Solana transactions or test fixtures
+- Some tests timeout quickly (5-30 seconds) to avoid blocking CI
+- Recovery tests require worker restart orchestration (typically staging environment)
+- Database cleanup is performed before/after each test
+- Temporal schedules are cleaned up on test completion (best effort)
+
+**CI/CD Considerations:**
+
+- Basic integration tests can run in CI with docker-compose infrastructure
+- Payment integration tests typically require staging environment
+- Recovery tests best suited for staging/pre-production validation
+- Set appropriate timeouts for workflow tests (30s-2min typical)
+
+**Development Workflow:**
+
+```bash
+# Terminal 1: Start infrastructure
+make docker-up
+sleep 60  # Wait for Temporal
+
+# Terminal 2: Start worker
+make run-worker
+
+# Terminal 3: Start server (for payment tests)
+make run-server
+
+# Terminal 4: Run integration tests
+RUN_INTEGRATION_TESTS=1 go test -v ./service/temporal/...
+```
+
 ### Worked Example: Monitoring IncentivizeThis Escrow Wallet for USDC
 
 - First, run the server and worker locally
