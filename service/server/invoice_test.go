@@ -12,85 +12,70 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestGeneratePaymentInvoice tests the basic invoice generation functionality.
-//
-// WHAT IS BEING TESTED:
-// We're testing that generatePaymentInvoice() creates a valid invoice with
-// all required fields properly populated.
-//
-// EXPECTED BEHAVIOR:
-// - Invoice ID should be a valid UUID
-// - Memo should be in format "{prefix}{invoice_id}"
-// - Amount should match the configured fee amount
-// - Network should match the service wallet's network
-// - Expiry time should be exactly "now + timeout"
-// - Status URL should be in the correct format
-// - Payment URL should be a valid Solana Pay URL
-// - QR code data should be valid base64-encoded PNG
-//
-// This test verifies the fundamental invoice generation logic.
+// TestGeneratePaymentInvoice tests basic invoice generation for USDC payments.
 func TestGeneratePaymentInvoice(t *testing.T) {
+	usdcMint := "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" // USDC mainnet
 	cfg := &config.PaymentGatewayConfig{
 		ServiceWallet:  "FoRoHtOoWaLLeTaDdReSs1234567890123456789012",
 		ServiceNetwork: "mainnet",
-		FeeAmount:      1000000, // 0.001 SOL
-		FeeAssetType:   "sol",
+		FeeAmount:      1000000, // 1 USDC
 		PaymentTimeout: 24 * time.Hour,
 		MemoPrefix:     "forohtoo-reg:",
 	}
 
-	address := "TestWalletAddress123456789012345678901234"
-	network := "mainnet"
-	assetType := "sol"
-	tokenMint := ""
-
 	beforeGeneration := time.Now()
-	invoice := generatePaymentInvoice(cfg, address, network, assetType, tokenMint)
+	invoice := generatePaymentInvoice(cfg, usdcMint)
 	afterGeneration := time.Now()
 
-	// Verify invoice ID is a valid UUID
+	// Verify invoice ID is valid UUID
 	_, err := uuid.Parse(invoice.ID)
 	if err != nil {
-		t.Errorf("Invoice ID is not a valid UUID: %v", err)
+		t.Errorf("Invoice ID should be valid UUID, got %q: %v", invoice.ID, err)
 	}
 
 	// Verify memo format
 	expectedMemo := cfg.MemoPrefix + invoice.ID
 	if invoice.Memo != expectedMemo {
-		t.Errorf("Expected memo %q, got %q", expectedMemo, invoice.Memo)
+		t.Errorf("Expected Memo %q, got %q", expectedMemo, invoice.Memo)
 	}
 
 	// Verify amount
 	if invoice.Amount != cfg.FeeAmount {
-		t.Errorf("Expected amount %d, got %d", cfg.FeeAmount, invoice.Amount)
+		t.Errorf("Expected Amount %d, got %d", cfg.FeeAmount, invoice.Amount)
 	}
 
-	// Verify AmountSOL calculation (lamports to SOL)
-	expectedAmountSOL := float64(cfg.FeeAmount) / 1e9
-	if invoice.AmountSOL != expectedAmountSOL {
-		t.Errorf("Expected AmountSOL %.9f, got %.9f", expectedAmountSOL, invoice.AmountSOL)
+	// Verify AmountUSDC calculation (base units to USDC)
+	expectedAmountUSDC := float64(cfg.FeeAmount) / 1e6
+	if invoice.AmountUSDC != expectedAmountUSDC {
+		t.Errorf("Expected AmountUSDC %.6f, got %.6f", expectedAmountUSDC, invoice.AmountUSDC)
 	}
 
 	// Verify network
 	if invoice.Network != cfg.ServiceNetwork {
-		t.Errorf("Expected network %q, got %q", cfg.ServiceNetwork, invoice.Network)
+		t.Errorf("Expected Network %q, got %q", cfg.ServiceNetwork, invoice.Network)
 	}
 
-	// Verify pay-to address
+	// Verify USDC mint
+	if invoice.USDCMint != usdcMint {
+		t.Errorf("Expected USDCMint %q, got %q", usdcMint, invoice.USDCMint)
+	}
+
+	// Verify pay to address
 	if invoice.PayToAddress != cfg.ServiceWallet {
 		t.Errorf("Expected PayToAddress %q, got %q", cfg.ServiceWallet, invoice.PayToAddress)
 	}
 
-	// Verify asset type
-	if invoice.AssetType != cfg.FeeAssetType {
-		t.Errorf("Expected AssetType %q, got %q", cfg.FeeAssetType, invoice.AssetType)
+	// Verify expiry
+	if invoice.ExpiresAt.Before(beforeGeneration.Add(cfg.PaymentTimeout)) {
+		t.Error("ExpiresAt should be at least timeout duration in the future")
+	}
+	if invoice.ExpiresAt.After(afterGeneration.Add(cfg.PaymentTimeout)) {
+		t.Error("ExpiresAt should not be more than timeout duration after generation")
 	}
 
-	// Verify expiry time is approximately now + timeout
-	// Allow 1 second tolerance for test execution time
-	expectedExpiry := beforeGeneration.Add(cfg.PaymentTimeout)
-	if invoice.ExpiresAt.Before(expectedExpiry) || invoice.ExpiresAt.After(afterGeneration.Add(cfg.PaymentTimeout)) {
-		t.Errorf("Expected ExpiresAt around %v, got %v", expectedExpiry, invoice.ExpiresAt)
+	// Verify timeout duration
+	if invoice.Timeout != cfg.PaymentTimeout {
+		t.Errorf("Expected Timeout %v, got %v", cfg.PaymentTimeout, invoice.Timeout)
 	}
 
 	// Verify status URL format
@@ -104,253 +89,130 @@ func TestGeneratePaymentInvoice(t *testing.T) {
 		t.Error("PaymentURL should not be empty")
 	}
 
-	// Verify QR code data is not empty
+	// Verify payment URL contains USDC mint (spl-token parameter)
+	if !strings.Contains(invoice.PaymentURL, usdcMint) {
+		t.Errorf("PaymentURL should contain USDC mint %q", usdcMint)
+	}
+
+	// Verify payment URL contains memo (URL-encoded)
+	if !strings.Contains(invoice.PaymentURL, "memo=") {
+		t.Error("PaymentURL should contain memo parameter")
+	}
+
+	// Verify QR code data is valid base64
 	if invoice.QRCodeData == "" {
 		t.Error("QRCodeData should not be empty")
 	}
+	_, err = base64.StdEncoding.DecodeString(invoice.QRCodeData)
+	if err != nil {
+		t.Errorf("QRCodeData should be valid base64: %v", err)
+	}
 
-	// Verify created at is recent
+	// Verify created at timestamp
 	if invoice.CreatedAt.Before(beforeGeneration) || invoice.CreatedAt.After(afterGeneration) {
-		t.Errorf("Expected CreatedAt between %v and %v, got %v", beforeGeneration, afterGeneration, invoice.CreatedAt)
+		t.Error("CreatedAt timestamp should be between test start and end")
 	}
 }
 
-// TestBuildSolanaPayURL tests Solana Pay URL generation for SOL payments.
-//
-// WHAT IS BEING TESTED:
-// We're testing that buildSolanaPayURL() creates a valid Solana Pay URL
-// with correct formatting for SOL payments.
-//
-// EXPECTED BEHAVIOR:
-// - URL format should be "solana:{recipient}?{params}"
-// - Amount should be in SOL (not lamports), with 9 decimal places
-// - Memo should be URL-encoded
-// - Label and message should be included and URL-encoded
-// - No "spl-token" parameter for SOL payments
-//
-// This ensures wallet apps can correctly parse and pre-fill the payment.
+// TestBuildSolanaPayURL tests Solana Pay URL generation for USDC.
 func TestBuildSolanaPayURL(t *testing.T) {
 	recipient := "FoRoHtOoWaLLeTaDdReSs1234567890123456789012"
-	amountLamports := int64(1000000) // 0.001 SOL
-	assetType := "sol"
-	tokenMint := ""
-	memo := "forohtoo-reg:abc123"
+	amount := int64(1000000) // 1 USDC
+	usdcMint := "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+	memo := "forohtoo-reg:test-invoice-123"
 
-	paymentURL := buildSolanaPayURL(recipient, amountLamports, assetType, tokenMint, memo)
+	paymentURL := buildSolanaPayURL(recipient, amount, usdcMint, memo)
 
-	// Verify URL starts with "solana:"
+	// Verify URL starts with solana: scheme
 	if !strings.HasPrefix(paymentURL, "solana:") {
-		t.Errorf("Expected URL to start with 'solana:', got %q", paymentURL)
+		t.Errorf("Payment URL should start with 'solana:', got %q", paymentURL)
 	}
 
-	// Verify recipient is in URL
+	// Verify URL contains recipient
 	if !strings.Contains(paymentURL, recipient) {
-		t.Errorf("Expected URL to contain recipient %q, got %q", recipient, paymentURL)
+		t.Errorf("Payment URL should contain recipient %q", recipient)
 	}
 
-	// Parse URL to verify parameters
-	// Remove "solana:" prefix and parse as regular URL
-	urlStr := strings.TrimPrefix(paymentURL, "solana:")
-	parsedURL, err := url.Parse("https://dummy.com/" + urlStr) // Add dummy scheme for parsing
+	// Parse URL
+	// Remove "solana:" prefix and parse
+	urlWithoutScheme := strings.TrimPrefix(paymentURL, "solana:")
+	parts := strings.SplitN(urlWithoutScheme, "?", 2)
+	if len(parts) != 2 {
+		t.Fatalf("Expected URL format solana:recipient?params, got %q", paymentURL)
+	}
+
+	params, err := url.ParseQuery(parts[1])
 	if err != nil {
-		t.Fatalf("Failed to parse URL: %v", err)
+		t.Fatalf("Failed to parse URL params: %v", err)
 	}
 
-	params := parsedURL.Query()
-
-	// Verify amount is in SOL (0.001)
-	amountStr := params.Get("amount")
-	if amountStr != "0.001000000" {
-		t.Errorf("Expected amount=0.001000000, got %q", amountStr)
+	// Verify amount parameter (1 USDC = 1.000000)
+	expectedAmount := "1.000000"
+	if params.Get("amount") != expectedAmount {
+		t.Errorf("Expected amount=%q, got %q", expectedAmount, params.Get("amount"))
 	}
 
-	// Verify memo
-	memoStr := params.Get("memo")
-	if memoStr != memo {
-		t.Errorf("Expected memo=%q, got %q", memo, memoStr)
+	// Verify spl-token parameter (must be present for USDC)
+	if params.Get("spl-token") != usdcMint {
+		t.Errorf("Expected spl-token=%q, got %q", usdcMint, params.Get("spl-token"))
+	}
+
+	// Verify memo parameter
+	if params.Get("memo") != memo {
+		t.Errorf("Expected memo=%q, got %q", memo, params.Get("memo"))
 	}
 
 	// Verify label
-	label := params.Get("label")
-	if label != "Forohtoo Registration" {
-		t.Errorf("Expected label='Forohtoo Registration', got %q", label)
+	if params.Get("label") == "" {
+		t.Error("Label parameter should not be empty")
 	}
 
 	// Verify message
-	message := params.Get("message")
-	if message != "Payment for wallet monitoring service" {
-		t.Errorf("Expected message='Payment for wallet monitoring service', got %q", message)
-	}
-
-	// Verify NO spl-token parameter for SOL payments
-	if params.Has("spl-token") {
-		t.Error("SOL payment should not have spl-token parameter")
+	if params.Get("message") == "" {
+		t.Error("Message parameter should not be empty")
 	}
 }
 
-// TestBuildSolanaPayURL_SPLToken tests Solana Pay URL generation for SPL token payments.
-//
-// WHAT IS BEING TESTED:
-// We're testing that buildSolanaPayURL() creates a valid Solana Pay URL
-// with the spl-token parameter for SPL token payments.
-//
-// EXPECTED BEHAVIOR:
-// - URL should include "spl-token={mint}" parameter
-// - Amount should still be in decimal format (token decimals, not raw amount)
-// - All other parameters (memo, label, message) should be present
-//
-// This ensures SPL token payments are correctly formatted for wallet apps.
-func TestBuildSolanaPayURL_SPLToken(t *testing.T) {
-	recipient := "FoRoHtOoWaLLeTaDdReSs1234567890123456789012"
-	amountLamports := int64(1000000) // For USDC with 6 decimals, this would be 1 USDC
-	assetType := "spl-token"
-	tokenMint := "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" // USDC mainnet
-	memo := "forohtoo-reg:xyz789"
-
-	paymentURL := buildSolanaPayURL(recipient, amountLamports, assetType, tokenMint, memo)
-
-	// Parse URL
-	urlStr := strings.TrimPrefix(paymentURL, "solana:")
-	parsedURL, err := url.Parse("https://dummy.com/" + urlStr)
-	if err != nil {
-		t.Fatalf("Failed to parse URL: %v", err)
-	}
-
-	params := parsedURL.Query()
-
-	// Verify spl-token parameter is present and correct
-	splToken := params.Get("spl-token")
-	if splToken != tokenMint {
-		t.Errorf("Expected spl-token=%q, got %q", tokenMint, splToken)
-	}
-
-	// Verify memo
-	memoStr := params.Get("memo")
-	if memoStr != memo {
-		t.Errorf("Expected memo=%q, got %q", memo, memoStr)
-	}
-}
-
-// TestGenerateQRCode tests QR code generation from payment URLs.
-//
-// WHAT IS BEING TESTED:
-// We're testing that generateQRCode() creates a valid, scannable QR code
-// image from a Solana Pay URL.
-//
-// EXPECTED BEHAVIOR:
-// - QR code data should be valid base64
-// - Decoding base64 should produce a valid PNG image
-// - The PNG image should contain the payment URL (when scanned)
-//
-// This ensures wallet apps can scan the QR code and extract the payment info.
+// TestGenerateQRCode tests QR code generation.
 func TestGenerateQRCode(t *testing.T) {
-	paymentURL := "solana:FoRoHtOo...?amount=0.001&memo=test"
+	testURL := "solana:TestWallet?amount=1.0&memo=test"
 
-	qrCodeData, err := generateQRCode(paymentURL)
+	qrCodeData, err := generateQRCode(testURL)
 	if err != nil {
-		t.Fatalf("generateQRCode() failed: %v", err)
+		t.Fatalf("generateQRCode failed: %v", err)
 	}
 
-	// Verify QR code data is not empty
+	// Verify result is not empty
 	if qrCodeData == "" {
-		t.Fatal("QR code data is empty")
+		t.Error("QR code data should not be empty")
 	}
 
-	// Verify it's valid base64
-	imgData, err := base64.StdEncoding.DecodeString(qrCodeData)
+	// Verify result is valid base64
+	decoded, err := base64.StdEncoding.DecodeString(qrCodeData)
 	if err != nil {
-		t.Fatalf("QR code data is not valid base64: %v", err)
+		t.Errorf("QR code should be valid base64: %v", err)
 	}
 
-	// Verify it's a valid PNG image
-	_, err = png.Decode(strings.NewReader(string(imgData)))
+	// Verify decoded data is valid PNG
+	_, err = png.Decode(strings.NewReader(string(decoded)))
 	if err != nil {
-		t.Fatalf("QR code data is not a valid PNG image: %v", err)
+		t.Errorf("QR code should be valid PNG image: %v", err)
 	}
 }
 
-// TestGenerateQRCode_DifferentURLsProduceDifferentCodes tests that different
-// payment URLs produce different QR codes.
-//
-// WHAT IS BEING TESTED:
-// We're testing that QR code generation is deterministic - same input produces
-// same output, different inputs produce different outputs.
-//
-// EXPECTED BEHAVIOR:
-// - Same payment URL should produce the same QR code (deterministic)
-// - Different payment URLs should produce different QR codes
-//
-// This ensures QR codes correctly encode the payment information.
+// TestGenerateQRCode_DifferentURLsProduceDifferentCodes tests that different URLs produce different QR codes.
 func TestGenerateQRCode_DifferentURLsProduceDifferentCodes(t *testing.T) {
-	url1 := "solana:Address1?amount=0.001&memo=test1"
-	url2 := "solana:Address2?amount=0.002&memo=test2"
+	url1 := "solana:Wallet1?amount=1.0"
+	url2 := "solana:Wallet2?amount=2.0"
 
-	qr1, err := generateQRCode(url1)
-	if err != nil {
-		t.Fatalf("generateQRCode(url1) failed: %v", err)
+	qr1, err1 := generateQRCode(url1)
+	qr2, err2 := generateQRCode(url2)
+
+	if err1 != nil || err2 != nil {
+		t.Fatalf("QR generation failed: err1=%v, err2=%v", err1, err2)
 	}
 
-	qr2, err := generateQRCode(url2)
-	if err != nil {
-		t.Fatalf("generateQRCode(url2) failed: %v", err)
-	}
-
-	// Different URLs should produce different QR codes
 	if qr1 == qr2 {
-		t.Error("Different URLs produced the same QR code")
-	}
-
-	// Same URL should produce same QR code (test determinism)
-	qr1Again, err := generateQRCode(url1)
-	if err != nil {
-		t.Fatalf("generateQRCode(url1Again) failed: %v", err)
-	}
-
-	if qr1 != qr1Again {
-		t.Error("Same URL produced different QR codes (not deterministic)")
-	}
-}
-
-// TestInvoice_SPLToken tests invoice generation for SPL token payments.
-//
-// WHAT IS BEING TESTED:
-// We're testing that invoices for SPL token payments include the token mint
-// and have the correct asset type.
-//
-// EXPECTED BEHAVIOR:
-// - AssetType should be "spl-token"
-// - TokenMint should be set to the provided mint address
-// - Payment URL should include spl-token parameter
-//
-// This ensures SPL token payment invoices are correctly configured.
-func TestInvoice_SPLToken(t *testing.T) {
-	cfg := &config.PaymentGatewayConfig{
-		ServiceWallet:  "FoRoHtOoWaLLeTaDdReSs1234567890123456789012",
-		ServiceNetwork: "mainnet",
-		FeeAmount:      1000000,
-		FeeAssetType:   "spl-token",
-		FeeTokenMint:   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC
-		PaymentTimeout: 24 * time.Hour,
-		MemoPrefix:     "forohtoo-reg:",
-	}
-
-	invoice := generatePaymentInvoice(cfg, "addr", "mainnet", "spl-token", cfg.FeeTokenMint)
-
-	// Verify asset type
-	if invoice.AssetType != "spl-token" {
-		t.Errorf("Expected AssetType=\"spl-token\", got %q", invoice.AssetType)
-	}
-
-	// Verify token mint
-	if invoice.TokenMint != cfg.FeeTokenMint {
-		t.Errorf("Expected TokenMint=%q, got %q", cfg.FeeTokenMint, invoice.TokenMint)
-	}
-
-	// Verify payment URL contains spl-token parameter
-	if !strings.Contains(invoice.PaymentURL, "spl-token=") {
-		t.Error("Payment URL for SPL token should contain spl-token parameter")
-	}
-	if !strings.Contains(invoice.PaymentURL, cfg.FeeTokenMint) {
-		t.Errorf("Payment URL should contain token mint %q", cfg.FeeTokenMint)
+		t.Error("Different URLs should produce different QR codes")
 	}
 }

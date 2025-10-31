@@ -42,13 +42,12 @@ type Config struct {
 }
 
 // PaymentGatewayConfig holds payment gateway settings for wallet registration fees.
+// All payments are in USDC (using the network-appropriate USDC mint address).
 type PaymentGatewayConfig struct {
 	Enabled         bool          `json:"enabled"`           // Enable payment gateway
-	ServiceWallet   string        `json:"service_wallet"`    // Forohtoo's wallet address for receiving payments
+	ServiceWallet   string        `json:"service_wallet"`    // Forohtoo's wallet address for receiving USDC payments
 	ServiceNetwork  string        `json:"service_network"`   // "mainnet" or "devnet"
-	FeeAmount       int64         `json:"fee_amount"`        // Registration fee in lamports (default: 1000000 = 0.001 SOL)
-	FeeAssetType    string        `json:"fee_asset_type"`    // "sol" or "spl-token"
-	FeeTokenMint    string        `json:"fee_token_mint"`    // Token mint address for SPL token fees (empty for SOL)
+	FeeAmount       int64         `json:"fee_amount"`        // Registration fee in USDC base units (6 decimals: 1 USDC = 1000000)
 	PaymentTimeout  time.Duration `json:"payment_timeout"`   // How long to wait for payment (default: 24h)
 	MemoPrefix      string        `json:"memo_prefix"`       // Prefix for payment memos (default: "forohtoo-reg:")
 }
@@ -278,8 +277,7 @@ func (c *Config) GetUSDCMintForNetwork(network string) (string, error) {
 // LoadDefaults sets default values for payment gateway configuration.
 func (p *PaymentGatewayConfig) LoadDefaults() {
 	p.Enabled = false
-	p.FeeAmount = 1000000 // 0.001 SOL
-	p.FeeAssetType = "sol"
+	p.FeeAmount = 1000000 // 1 USDC (USDC has 6 decimals)
 	p.PaymentTimeout = 24 * time.Hour
 	p.MemoPrefix = "forohtoo-reg:"
 	p.ServiceNetwork = "mainnet"
@@ -301,7 +299,7 @@ func (p *PaymentGatewayConfig) LoadFromEnv() error {
 		p.ServiceNetwork = network
 	}
 
-	// Parse FeeAmount
+	// Parse FeeAmount (in USDC base units: 1 USDC = 1000000)
 	if feeAmountStr := os.Getenv("PAYMENT_GATEWAY_FEE_AMOUNT"); feeAmountStr != "" {
 		parsed, err := strconv.ParseInt(feeAmountStr, 10, 64)
 		if err != nil {
@@ -309,12 +307,6 @@ func (p *PaymentGatewayConfig) LoadFromEnv() error {
 		}
 		p.FeeAmount = parsed
 	}
-
-	if assetType := os.Getenv("PAYMENT_GATEWAY_FEE_ASSET_TYPE"); assetType != "" {
-		p.FeeAssetType = assetType
-	}
-
-	p.FeeTokenMint = os.Getenv("PAYMENT_GATEWAY_FEE_TOKEN_MINT")
 
 	// Parse PaymentTimeout
 	if timeoutStr := os.Getenv("PAYMENT_GATEWAY_PAYMENT_TIMEOUT"); timeoutStr != "" {
@@ -367,21 +359,6 @@ func (p *PaymentGatewayConfig) Validate() error {
 	// FeeAmount must be positive
 	if p.FeeAmount <= 0 {
 		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_FEE_AMOUNT must be positive"))
-	}
-
-	// FeeAssetType must be sol or spl-token
-	if p.FeeAssetType != "sol" && p.FeeAssetType != "spl-token" {
-		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_FEE_ASSET_TYPE must be 'sol' or 'spl-token'"))
-	}
-
-	// If FeeAssetType is spl-token, FeeTokenMint is required and must be valid
-	if p.FeeAssetType == "spl-token" {
-		if p.FeeTokenMint == "" {
-			errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_FEE_TOKEN_MINT is required when FEE_ASSET_TYPE is 'spl-token'"))
-		} else if len(p.FeeTokenMint) < 32 || len(p.FeeTokenMint) > 44 {
-			// Basic validation: Solana addresses are 32-44 characters (base58)
-			errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_FEE_TOKEN_MINT must be a valid Solana address (32-44 characters)"))
-		}
 	}
 
 	// PaymentTimeout must be positive

@@ -226,8 +226,16 @@ func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, te
 				"asset_type", req.Asset.Type,
 			)
 
-			// Generate payment invoice
-			invoice := generatePaymentInvoice(&cfg.PaymentGateway, req.Address, req.Network, req.Asset.Type, tokenMint)
+			// Determine USDC mint based on service network
+			var usdcMint string
+			if cfg.PaymentGateway.ServiceNetwork == "mainnet" {
+				usdcMint = cfg.USDCMainnetMintAddress
+			} else {
+				usdcMint = cfg.USDCDevnetMintAddress
+			}
+
+			// Generate payment invoice (always in USDC)
+			invoice := generatePaymentInvoice(&cfg.PaymentGateway, usdcMint)
 
 			// Start Temporal workflow for payment-gated registration
 			workflowID := fmt.Sprintf("payment-registration:%s", invoice.ID)

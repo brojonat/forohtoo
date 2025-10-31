@@ -137,11 +137,13 @@ func (s *Server) ensureServiceWalletRegistered(ctx context.Context) error {
 	serviceWallet := s.cfg.PaymentGateway.ServiceWallet
 	serviceNetwork := s.cfg.PaymentGateway.ServiceNetwork
 
-	// Determine asset type and token mint based on fee configuration
-	assetType := s.cfg.PaymentGateway.FeeAssetType
-	tokenMint := s.cfg.PaymentGateway.FeeTokenMint
-	if assetType == "sol" {
-		tokenMint = "" // Normalize for SOL
+	// Service wallet always monitors USDC payments
+	assetType := "spl-token"
+	var tokenMint string
+	if serviceNetwork == "mainnet" {
+		tokenMint = s.cfg.USDCMainnetMintAddress
+	} else {
+		tokenMint = s.cfg.USDCDevnetMintAddress
 	}
 
 	// Check if service wallet is already registered
@@ -160,21 +162,18 @@ func (s *Server) ensureServiceWalletRegistered(ctx context.Context) error {
 	}
 
 	// Register service wallet
-	s.logger.Info("registering service wallet for payment monitoring",
+	s.logger.Info("registering service wallet for USDC payment monitoring",
 		"address", serviceWallet,
 		"network", serviceNetwork,
-		"asset_type", assetType,
+		"usdc_mint", tokenMint,
 	)
 
-	// Compute ATA if needed
-	var ata *string
-	if assetType == "spl-token" {
-		ataAddr, err := computeAssociatedTokenAddress(serviceWallet, tokenMint)
-		if err != nil {
-			return fmt.Errorf("failed to compute service wallet ATA: %w", err)
-		}
-		ata = &ataAddr
+	// Compute ATA for USDC
+	ataAddr, err := computeAssociatedTokenAddress(serviceWallet, tokenMint)
+	if err != nil {
+		return fmt.Errorf("failed to compute service wallet ATA: %w", err)
 	}
+	ata := &ataAddr
 
 	// Use a reasonable poll interval for service wallet (30s default)
 	pollInterval := s.cfg.DefaultPollInterval

@@ -13,14 +13,14 @@ import (
 )
 
 // Invoice represents a payment invoice for wallet registration.
+// All payments are in USDC.
 type Invoice struct {
 	ID           string        `json:"id"`             // Unique invoice ID (UUID)
 	PayToAddress string        `json:"pay_to_address"` // Forohtoo's wallet
 	Network      string        `json:"network"`        // "mainnet" or "devnet"
-	Amount       int64         `json:"amount"`         // Lamports or token amount
-	AmountSOL    float64       `json:"amount_sol"`     // Human-readable SOL amount
-	AssetType    string        `json:"asset_type"`     // "sol" or "spl-token"
-	TokenMint    string        `json:"token_mint,omitempty"` // For SPL tokens
+	USDCMint     string        `json:"usdc_mint"`      // USDC token mint address for the network
+	Amount       int64         `json:"amount"`         // Amount in USDC base units (6 decimals)
+	AmountUSDC   float64       `json:"amount_usdc"`    // Human-readable USDC amount
 	Memo         string        `json:"memo"`           // Required in payment txn
 	ExpiresAt    time.Time     `json:"expires_at"`     // Payment deadline
 	Timeout      time.Duration `json:"timeout"`        // Duration until expiry
@@ -31,20 +31,20 @@ type Invoice struct {
 }
 
 // generatePaymentInvoice creates a new payment invoice for wallet registration.
-func generatePaymentInvoice(cfg *config.PaymentGatewayConfig, address, network, assetType, tokenMint string) Invoice {
+// Payment is always in USDC for the specified network.
+func generatePaymentInvoice(cfg *config.PaymentGatewayConfig, usdcMint string) Invoice {
 	invoiceID := uuid.New().String()
 	memo := fmt.Sprintf("%s%s", cfg.MemoPrefix, invoiceID)
 	now := time.Now()
 
-	// Convert lamports to SOL for display
-	amountSOL := float64(cfg.FeeAmount) / 1e9
+	// Convert USDC base units to human-readable amount (USDC has 6 decimals)
+	amountUSDC := float64(cfg.FeeAmount) / 1e6
 
-	// Build Solana Pay URL
+	// Build Solana Pay URL for USDC payment
 	paymentURL := buildSolanaPayURL(
 		cfg.ServiceWallet,
 		cfg.FeeAmount,
-		cfg.FeeAssetType,
-		cfg.FeeTokenMint,
+		usdcMint,
 		memo,
 	)
 
@@ -59,10 +59,9 @@ func generatePaymentInvoice(cfg *config.PaymentGatewayConfig, address, network, 
 		ID:           invoiceID,
 		PayToAddress: cfg.ServiceWallet,
 		Network:      cfg.ServiceNetwork,
+		USDCMint:     usdcMint,
 		Amount:       cfg.FeeAmount,
-		AmountSOL:    amountSOL,
-		AssetType:    cfg.FeeAssetType,
-		TokenMint:    cfg.FeeTokenMint,
+		AmountUSDC:   amountUSDC,
 		Memo:         memo,
 		ExpiresAt:    now.Add(cfg.PaymentTimeout),
 		Timeout:      cfg.PaymentTimeout,
@@ -73,22 +72,18 @@ func generatePaymentInvoice(cfg *config.PaymentGatewayConfig, address, network, 
 	}
 }
 
-// buildSolanaPayURL creates a Solana Pay-compatible URL for payment.
-// Format: solana:{recipient}?amount={amount}&spl-token={mint}&memo={memo}&label={label}&message={message}
-func buildSolanaPayURL(recipient string, amountLamports int64, assetType, tokenMint, memo string) string {
-	// Convert lamports to SOL
-	amountSOL := float64(amountLamports) / 1e9
+// buildSolanaPayURL creates a Solana Pay-compatible URL for USDC payment.
+// Format: solana:{recipient}?amount={amount}&spl-token={usdcMint}&memo={memo}&label={label}&message={message}
+func buildSolanaPayURL(recipient string, amountBaseUnits int64, usdcMint, memo string) string {
+	// Convert USDC base units to human-readable amount (6 decimals)
+	amountUSDC := float64(amountBaseUnits) / 1e6
 
 	params := url.Values{}
-	params.Set("amount", fmt.Sprintf("%.9f", amountSOL))
+	params.Set("amount", fmt.Sprintf("%.6f", amountUSDC))
+	params.Set("spl-token", usdcMint) // Always USDC
 	params.Set("memo", memo)
 	params.Set("label", "Forohtoo Registration")
 	params.Set("message", "Payment for wallet monitoring service")
-
-	// Add spl-token parameter if paying with SPL token
-	if assetType == "spl-token" && tokenMint != "" {
-		params.Set("spl-token", tokenMint)
-	}
 
 	return fmt.Sprintf("solana:%s?%s", recipient, params.Encode())
 }
