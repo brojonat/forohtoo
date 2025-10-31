@@ -12,16 +12,28 @@ import (
 	"go.temporal.io/sdk/testsuite"
 )
 
-// Mock payment client for testing
-type MockPaymentClient struct {
+// Mock forohtoo client for testing
+type MockForohtooClient struct {
 	AwaitFunc func(ctx context.Context, address, network string, lookback time.Duration, matcher func(*client.Transaction) bool) (*client.Transaction, error)
 }
 
-func (m *MockPaymentClient) Await(ctx context.Context, address, network string, lookback time.Duration, matcher func(*client.Transaction) bool) (*client.Transaction, error) {
+func (m *MockForohtooClient) Await(ctx context.Context, address, network string, lookback time.Duration, matcher func(*client.Transaction) bool) (*client.Transaction, error) {
 	if m.AwaitFunc != nil {
 		return m.AwaitFunc(ctx, address, network, lookback, matcher)
 	}
 	return nil, errors.New("AwaitFunc not set")
+}
+
+// Mock temporal client for testing
+type MockTemporalClient struct {
+	UpsertWalletAssetScheduleFunc func(ctx context.Context, address, network, assetType, tokenMint string, ata *string, interval time.Duration) error
+}
+
+func (m *MockTemporalClient) UpsertWalletAssetSchedule(ctx context.Context, address, network, assetType, tokenMint string, ata *string, interval time.Duration) error {
+	if m.UpsertWalletAssetScheduleFunc != nil {
+		return m.UpsertWalletAssetScheduleFunc(ctx, address, network, assetType, tokenMint, ata, interval)
+	}
+	return nil
 }
 
 // TestAwaitPayment_Success tests the happy path where a matching payment is received.
@@ -41,16 +53,17 @@ func TestAwaitPayment_Success(t *testing.T) {
 	testSuite := &testsuite.WorkflowTestSuite{}
 	env := testSuite.NewTestActivityEnvironment()
 
-	// Create mock payment client that returns a matching transaction
+	// Create mock forohtoo client that returns a matching transaction
+	expectedMemo := "forohtoo-reg:test-invoice-123"
 	expectedTxn := &client.Transaction{
 		Signature:   "5a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef",
 		Amount:      1000000, // 0.001 SOL
-		Memo:        "forohtoo-reg:test-invoice-123",
+		Memo:        &expectedMemo,
 		FromAddress: stringPtr("SenderAddress123456789012345678901234567"),
 		BlockTime:   time.Now(),
 	}
 
-	mockClient := &MockPaymentClient{
+	mockClient := &MockForohtooClient{
 		AwaitFunc: func(ctx context.Context, address, network string, lookback time.Duration, matcher func(*client.Transaction) bool) (*client.Transaction, error) {
 			// Verify parameters
 			if address != "ServiceWalletAddress123" {
@@ -74,7 +87,7 @@ func TestAwaitPayment_Success(t *testing.T) {
 
 	// Create activities with mock client
 	activities := &Activities{
-		paymentClient: mockClient,
+		forohtooClient: mockClient,
 	}
 
 	// Register activity
@@ -130,14 +143,14 @@ func TestAwaitPayment_TimeoutNoPayment(t *testing.T) {
 	env := testSuite.NewTestActivityEnvironment()
 
 	// Mock client that returns timeout error
-	mockClient := &MockPaymentClient{
+	mockClient := &MockForohtooClient{
 		AwaitFunc: func(ctx context.Context, address, network string, lookback time.Duration, matcher func(*client.Transaction) bool) (*client.Transaction, error) {
 			return nil, context.DeadlineExceeded
 		},
 	}
 
 	activities := &Activities{
-		paymentClient: mockClient,
+		forohtooClient: mockClient,
 	}
 
 	env.RegisterActivity(activities.AwaitPayment)
@@ -191,14 +204,15 @@ func TestAwaitPayment_AmountTooLow(t *testing.T) {
 			testSuite := &testsuite.WorkflowTestSuite{}
 			env := testSuite.NewTestActivityEnvironment()
 
+			testMemo := "forohtoo-reg:test"
 			txn := &client.Transaction{
 				Signature: "test-sig",
 				Amount:    tt.txnAmount,
-				Memo:      "forohtoo-reg:test",
+				Memo:      &testMemo,
 				BlockTime: time.Now(),
 			}
 
-			mockClient := &MockPaymentClient{
+			mockClient := &MockForohtooClient{
 				AwaitFunc: func(ctx context.Context, address, network string, lookback time.Duration, matcher func(*client.Transaction) bool) (*client.Transaction, error) {
 					// Test the matcher
 					matches := matcher(txn)
@@ -215,7 +229,7 @@ func TestAwaitPayment_AmountTooLow(t *testing.T) {
 			}
 
 			activities := &Activities{
-				paymentClient: mockClient,
+				forohtooClient: mockClient,
 			}
 
 			env.RegisterActivity(activities.AwaitPayment)
@@ -272,14 +286,18 @@ func TestAwaitPayment_WrongMemo(t *testing.T) {
 			testSuite := &testsuite.WorkflowTestSuite{}
 			env := testSuite.NewTestActivityEnvironment()
 
+			var memoPtr *string
+			if tt.txnMemo != "" {
+				memoPtr = &tt.txnMemo
+			}
 			txn := &client.Transaction{
 				Signature: "test-sig",
 				Amount:    1000000,
-				Memo:      tt.txnMemo,
+				Memo:      memoPtr,
 				BlockTime: time.Now(),
 			}
 
-			mockClient := &MockPaymentClient{
+			mockClient := &MockForohtooClient{
 				AwaitFunc: func(ctx context.Context, address, network string, lookback time.Duration, matcher func(*client.Transaction) bool) (*client.Transaction, error) {
 					matches := matcher(txn)
 					if matches != tt.shouldMatch {
@@ -294,7 +312,7 @@ func TestAwaitPayment_WrongMemo(t *testing.T) {
 			}
 
 			activities := &Activities{
-				paymentClient: mockClient,
+				forohtooClient: mockClient,
 			}
 
 			env.RegisterActivity(activities.AwaitPayment)
@@ -339,15 +357,16 @@ func TestAwaitPayment_HistoricalPayment(t *testing.T) {
 
 	// Historical transaction from 12 hours ago
 	historicalTime := time.Now().Add(-12 * time.Hour)
+	historicalMemo := "forohtoo-reg:historical"
 	historicalTxn := &client.Transaction{
 		Signature:   "historical-sig-123",
 		Amount:      1000000,
-		Memo:        "forohtoo-reg:historical",
+		Memo:        &historicalMemo,
 		BlockTime:   historicalTime,
 		FromAddress: stringPtr("Sender123"),
 	}
 
-	mockClient := &MockPaymentClient{
+	mockClient := &MockForohtooClient{
 		AwaitFunc: func(ctx context.Context, address, network string, lookback time.Duration, matcher func(*client.Transaction) bool) (*client.Transaction, error) {
 			// Verify lookback is set correctly
 			if lookback != 24*time.Hour {
@@ -363,7 +382,7 @@ func TestAwaitPayment_HistoricalPayment(t *testing.T) {
 	}
 
 	activities := &Activities{
-		paymentClient: mockClient,
+		forohtooClient: mockClient,
 	}
 
 	env.RegisterActivity(activities.AwaitPayment)
@@ -411,14 +430,14 @@ func TestAwaitPayment_ClientError(t *testing.T) {
 
 	expectedErr := errors.New("SSE connection failed: network unreachable")
 
-	mockClient := &MockPaymentClient{
+	mockClient := &MockForohtooClient{
 		AwaitFunc: func(ctx context.Context, address, network string, lookback time.Duration, matcher func(*client.Transaction) bool) (*client.Transaction, error) {
 			return nil, expectedErr
 		},
 	}
 
 	activities := &Activities{
-		paymentClient: mockClient,
+		forohtooClient: mockClient,
 	}
 
 	env.RegisterActivity(activities.AwaitPayment)
@@ -442,36 +461,24 @@ func TestAwaitPayment_ClientError(t *testing.T) {
 	}
 }
 
-// Mock store for testing
-type MockStore struct {
+// Mock store for testing (simplified version for payment tests)
+type MockStorePayment struct {
 	UpsertWalletFunc func(ctx context.Context, params db.UpsertWalletParams) (*db.Wallet, error)
 	DeleteWalletFunc func(ctx context.Context, address, network, assetType, tokenMint string) error
 }
 
-func (m *MockStore) UpsertWallet(ctx context.Context, params db.UpsertWalletParams) (*db.Wallet, error) {
+func (m *MockStorePayment) UpsertWallet(ctx context.Context, params db.UpsertWalletParams) (*db.Wallet, error) {
 	if m.UpsertWalletFunc != nil {
 		return m.UpsertWalletFunc(ctx, params)
 	}
 	return nil, errors.New("UpsertWalletFunc not set")
 }
 
-func (m *MockStore) DeleteWallet(ctx context.Context, address, network, assetType, tokenMint string) error {
+func (m *MockStorePayment) DeleteWallet(ctx context.Context, address, network, assetType, tokenMint string) error {
 	if m.DeleteWalletFunc != nil {
 		return m.DeleteWalletFunc(ctx, address, network, assetType, tokenMint)
 	}
 	return errors.New("DeleteWalletFunc not set")
-}
-
-// Mock scheduler for testing
-type MockScheduler struct {
-	UpsertWalletAssetScheduleFunc func(ctx context.Context, address, network, assetType, tokenMint string, ata *string, pollInterval time.Duration) error
-}
-
-func (m *MockScheduler) UpsertWalletAssetSchedule(ctx context.Context, address, network, assetType, tokenMint string, ata *string, pollInterval time.Duration) error {
-	if m.UpsertWalletAssetScheduleFunc != nil {
-		return m.UpsertWalletAssetScheduleFunc(ctx, address, network, assetType, tokenMint, ata, pollInterval)
-	}
-	return errors.New("UpsertWalletAssetScheduleFunc not set")
 }
 
 // TestRegisterWallet_Success tests the happy path for wallet registration.
@@ -505,7 +512,7 @@ func TestRegisterWallet_Success(t *testing.T) {
 	upsertCalled := false
 	scheduleCalled := false
 
-	mockStore := &MockStore{
+	mockStore := &MockStorePayment{
 		UpsertWalletFunc: func(ctx context.Context, params db.UpsertWalletParams) (*db.Wallet, error) {
 			upsertCalled = true
 
@@ -527,7 +534,7 @@ func TestRegisterWallet_Success(t *testing.T) {
 		},
 	}
 
-	mockScheduler := &MockScheduler{
+	mockScheduler := &MockTemporalClient{
 		UpsertWalletAssetScheduleFunc: func(ctx context.Context, address, network, assetType, tokenMint string, ata *string, pollInterval time.Duration) error {
 			scheduleCalled = true
 
@@ -548,7 +555,7 @@ func TestRegisterWallet_Success(t *testing.T) {
 
 	activities := &Activities{
 		store:     mockStore,
-		scheduler: mockScheduler,
+		temporalClient: mockScheduler,
 	}
 
 	env.RegisterActivity(activities.RegisterWallet)
@@ -609,13 +616,13 @@ func TestRegisterWallet_DatabaseError(t *testing.T) {
 	expectedErr := errors.New("database connection failed")
 	scheduleCalled := false
 
-	mockStore := &MockStore{
+	mockStore := &MockStorePayment{
 		UpsertWalletFunc: func(ctx context.Context, params db.UpsertWalletParams) (*db.Wallet, error) {
 			return nil, expectedErr
 		},
 	}
 
-	mockScheduler := &MockScheduler{
+	mockScheduler := &MockTemporalClient{
 		UpsertWalletAssetScheduleFunc: func(ctx context.Context, address, network, assetType, tokenMint string, ata *string, pollInterval time.Duration) error {
 			scheduleCalled = true
 			return nil
@@ -624,7 +631,7 @@ func TestRegisterWallet_DatabaseError(t *testing.T) {
 
 	activities := &Activities{
 		store:     mockStore,
-		scheduler: mockScheduler,
+		temporalClient: mockScheduler,
 	}
 
 	env.RegisterActivity(activities.RegisterWallet)
@@ -671,7 +678,7 @@ func TestRegisterWallet_ScheduleError(t *testing.T) {
 	scheduleErr := errors.New("temporal schedule creation failed")
 	deleteCalled := false
 
-	mockStore := &MockStore{
+	mockStore := &MockStorePayment{
 		UpsertWalletFunc: func(ctx context.Context, params db.UpsertWalletParams) (*db.Wallet, error) {
 			return &db.Wallet{
 				Address:   params.Address,
@@ -692,7 +699,7 @@ func TestRegisterWallet_ScheduleError(t *testing.T) {
 		},
 	}
 
-	mockScheduler := &MockScheduler{
+	mockScheduler := &MockTemporalClient{
 		UpsertWalletAssetScheduleFunc: func(ctx context.Context, address, network, assetType, tokenMint string, ata *string, pollInterval time.Duration) error {
 			return scheduleErr
 		},
@@ -700,7 +707,7 @@ func TestRegisterWallet_ScheduleError(t *testing.T) {
 
 	activities := &Activities{
 		store:     mockStore,
-		scheduler: mockScheduler,
+		temporalClient: mockScheduler,
 	}
 
 	env.RegisterActivity(activities.RegisterWallet)
@@ -748,7 +755,7 @@ func TestRegisterWallet_ScheduleErrorRollbackFails(t *testing.T) {
 	scheduleErr := errors.New("schedule creation failed")
 	deleteErr := errors.New("rollback delete failed")
 
-	mockStore := &MockStore{
+	mockStore := &MockStorePayment{
 		UpsertWalletFunc: func(ctx context.Context, params db.UpsertWalletParams) (*db.Wallet, error) {
 			return &db.Wallet{Address: params.Address}, nil
 		},
@@ -757,7 +764,7 @@ func TestRegisterWallet_ScheduleErrorRollbackFails(t *testing.T) {
 		},
 	}
 
-	mockScheduler := &MockScheduler{
+	mockScheduler := &MockTemporalClient{
 		UpsertWalletAssetScheduleFunc: func(ctx context.Context, address, network, assetType, tokenMint string, ata *string, pollInterval time.Duration) error {
 			return scheduleErr
 		},
@@ -765,7 +772,7 @@ func TestRegisterWallet_ScheduleErrorRollbackFails(t *testing.T) {
 
 	activities := &Activities{
 		store:     mockStore,
-		scheduler: mockScheduler,
+		temporalClient: mockScheduler,
 	}
 
 	env.RegisterActivity(activities.RegisterWallet)
@@ -810,7 +817,7 @@ func TestRegisterWallet_SPLToken(t *testing.T) {
 	testATA := "AssociatedTokenAddress12345678901234567"
 	testMint := "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" // USDC
 
-	mockStore := &MockStore{
+	mockStore := &MockStorePayment{
 		UpsertWalletFunc: func(ctx context.Context, params db.UpsertWalletParams) (*db.Wallet, error) {
 			// Verify SPL token parameters
 			if params.AssetType != "spl-token" {
@@ -834,7 +841,7 @@ func TestRegisterWallet_SPLToken(t *testing.T) {
 		},
 	}
 
-	mockScheduler := &MockScheduler{
+	mockScheduler := &MockTemporalClient{
 		UpsertWalletAssetScheduleFunc: func(ctx context.Context, address, network, assetType, tokenMint string, ata *string, pollInterval time.Duration) error {
 			// Verify ATA is passed to scheduler
 			if ata == nil || *ata != testATA {
@@ -850,7 +857,7 @@ func TestRegisterWallet_SPLToken(t *testing.T) {
 
 	activities := &Activities{
 		store:     mockStore,
-		scheduler: mockScheduler,
+		temporalClient: mockScheduler,
 	}
 
 	env.RegisterActivity(activities.RegisterWallet)
@@ -901,7 +908,7 @@ func TestRegisterWallet_SOL(t *testing.T) {
 	testSuite := &testsuite.WorkflowTestSuite{}
 	env := testSuite.NewTestActivityEnvironment()
 
-	mockStore := &MockStore{
+	mockStore := &MockStorePayment{
 		UpsertWalletFunc: func(ctx context.Context, params db.UpsertWalletParams) (*db.Wallet, error) {
 			// Verify SOL parameters
 			if params.AssetType != "sol" {
@@ -925,7 +932,7 @@ func TestRegisterWallet_SOL(t *testing.T) {
 		},
 	}
 
-	mockScheduler := &MockScheduler{
+	mockScheduler := &MockTemporalClient{
 		UpsertWalletAssetScheduleFunc: func(ctx context.Context, address, network, assetType, tokenMint string, ata *string, pollInterval time.Duration) error {
 			// Verify ATA is nil for SOL
 			if ata != nil {
@@ -941,7 +948,7 @@ func TestRegisterWallet_SOL(t *testing.T) {
 
 	activities := &Activities{
 		store:     mockStore,
-		scheduler: mockScheduler,
+		temporalClient: mockScheduler,
 	}
 
 	env.RegisterActivity(activities.RegisterWallet)

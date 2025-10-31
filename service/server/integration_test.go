@@ -43,7 +43,7 @@ func TestServerIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	store := db.NewStore(pool)
-	scheduler := temporal.NewMockScheduler()
+	temporalClient := (*temporal.Client)(nil)
 	cfg := &config.Config{
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
@@ -51,7 +51,7 @@ func TestServerIntegration(t *testing.T) {
 
 	// Create test server on random port
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := server.New(":0", cfg, store, scheduler, nil, nil, nil, logger) // :0 assigns random available port, nil for temporalClient, SSE and metrics
+	srv := server.New(":0", cfg, store, temporalClient, nil, nil, nil, logger) // :0 assigns random available port, nil for temporalClient, SSE and metrics
 
 	// Start server in background
 	serverAddr := make(chan string, 1)
@@ -60,7 +60,7 @@ func TestServerIntegration(t *testing.T) {
 		// We need to get the actual address after the server starts
 		// For now, use a fixed test port
 		testAddr := "localhost:18080"
-		srv = server.New(testAddr, cfg, store, scheduler, nil, nil, nil, logger) // nil for temporalClient, SSE and metrics
+		srv = server.New(testAddr, cfg, store, temporalClient, nil, nil, nil, logger) // nil for temporalClient, SSE and metrics
 		serverAddr <- testAddr
 		serverErrors <- srv.Start()
 	}()
@@ -203,14 +203,14 @@ func TestHealthEndpoint(t *testing.T) {
 	defer pool.Close()
 
 	store := db.NewStore(pool)
-	scheduler := temporal.NewMockScheduler()
+	temporalClient := (*temporal.Client)(nil)
 	cfg := &config.Config{
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
 
 	testAddr := "localhost:18081"
-	srv := server.New(testAddr, cfg, store, scheduler, nil, nil, nil, logger) // nil for temporalClient, SSE and metrics
+	srv := server.New(testAddr, cfg, store, temporalClient, nil, nil, nil, logger) // nil for temporalClient, SSE and metrics
 
 	// Start server
 	go srv.Start()

@@ -670,7 +670,7 @@ func TestPaymentFlow_ServiceWalletAutoRegistration(t *testing.T) {
 
 	// Call ensureServiceWalletRegistered (simulates server startup)
 	scheduler := &mockScheduler{}
-	err = ensureServiceWalletRegistered(ctx, testDB, scheduler, cfg)
+	err = ensureServiceWalletRegistered(ctx, testDB, temporalClient, cfg)
 	if err != nil {
 		t.Fatalf("Failed to auto-register service wallet: %v", err)
 	}
