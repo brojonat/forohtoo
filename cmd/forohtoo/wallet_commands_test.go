@@ -170,10 +170,11 @@ func TestUSDCAmountCalculation(t *testing.T) {
 
 func TestMatcherClosure(t *testing.T) {
 	// Test that multiple conditions work together (AND logic)
+	memo := `{"workflow_id": "test-123", "amount_usd": 0.42}`
 	txn := &client.Transaction{
 		Signature:     "test-sig",
 		Amount:        420000, // 0.42 USDC
-		Memo:          `{"workflow_id": "test-123", "amount_usd": 0.42}`,
+		Memo:          &memo,
 		WalletAddress: "test-wallet",
 	}
 
@@ -192,9 +193,9 @@ func TestMatcherClosure(t *testing.T) {
 	usdcAmount := 0.42
 	matcher := func(txn *client.Transaction) bool {
 		// Check workflow_id
-		if workflowID != "" && txn.Memo != "" {
+		if workflowID != "" && txn.Memo != nil && *txn.Memo != "" {
 			var memoJSON interface{}
-			if unmarshalErr := json.Unmarshal([]byte(txn.Memo), &memoJSON); unmarshalErr != nil {
+			if unmarshalErr := json.Unmarshal([]byte(*txn.Memo), &memoJSON); unmarshalErr != nil {
 				return false
 			}
 			iter := code.Run(memoJSON)
@@ -236,7 +237,8 @@ func TestMatcherClosure(t *testing.T) {
 
 	// Test with wrong workflow_id
 	txnWrongWorkflow := *txn
-	txnWrongWorkflow.Memo = `{"workflow_id": "wrong-id", "amount_usd": 0.42}`
+	wrongMemo := `{"workflow_id": "wrong-id", "amount_usd": 0.42}`
+	txnWrongWorkflow.Memo = &wrongMemo
 	if matcher(&txnWrongWorkflow) {
 		t.Error("expected transaction with wrong workflow_id to not match")
 	}

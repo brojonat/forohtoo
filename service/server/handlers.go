@@ -14,6 +14,7 @@ import (
 	"github.com/brojonat/forohtoo/service/db"
 	"github.com/brojonat/forohtoo/service/temporal"
 	solanago "github.com/gagliardetto/solana-go"
+	"go.temporal.io/sdk/client"
 )
 
 const (
@@ -106,8 +107,9 @@ func handleListWalletAssets(store *db.Store, logger *slog.Logger) http.Handler {
 
 // handleRegisterWalletAsset returns a handler that registers a new wallet+asset
 // and creates a Temporal schedule for polling.
+// With payment gateway enabled, new wallets require payment first.
 // POST /api/v1/wallet-assets
-func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, cfg *config.Config, logger *slog.Logger) http.Handler {
+func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client, cfg *config.Config, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Limit request body size to prevent memory exhaustion
 		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
@@ -209,6 +211,82 @@ func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, cf
 			ata = &ataAddr
 		}
 
+		// Check if wallet exists (for payment gateway)
+		walletExists, err := store.WalletExists(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint)
+		if err != nil {
+			logger.Error("failed to check wallet existence", "address", req.Address, "error", err)
+			writeError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// If wallet doesn't exist and payment gateway is enabled, require payment
+		if !walletExists && cfg.PaymentGateway.Enabled {
+			logger.Debug("new wallet registration with payment gateway enabled",
+				"address", req.Address,
+				"network", req.Network,
+				"asset_type", req.Asset.Type,
+			)
+
+			// Determine USDC mint based on service network
+			var usdcMint string
+			if cfg.PaymentGateway.ServiceNetwork == "mainnet" {
+				usdcMint = cfg.USDCMainnetMintAddress
+			} else {
+				usdcMint = cfg.USDCDevnetMintAddress
+			}
+
+			// Generate payment invoice (always in USDC)
+			// Invoice ID is the wallet address being registered
+			invoice := generatePaymentInvoice(&cfg.PaymentGateway, req.Address, usdcMint)
+
+			// Start Temporal workflow for payment-gated registration
+			workflowID := fmt.Sprintf("payment-registration:%s", invoice.ID)
+			workflowInput := temporal.PaymentGatedRegistrationInput{
+				Address:                req.Address,
+				Network:                req.Network,
+				AssetType:              req.Asset.Type,
+				TokenMint:              tokenMint,
+				AssociatedTokenAddress: ata,
+				PollInterval:           pollInterval,
+				ServiceWallet:          cfg.PaymentGateway.ServiceWallet,
+				ServiceNetwork:         cfg.PaymentGateway.ServiceNetwork,
+				FeeAmount:              cfg.PaymentGateway.FeeAmount,
+				PaymentMemo:            invoice.Memo,
+				PaymentTimeout:         cfg.PaymentGateway.PaymentTimeout,
+			}
+
+			// Use SDK client directly for workflow operations
+			sdkClient := temporalClient.SDKClient()
+			workflowOptions := client.StartWorkflowOptions{
+				ID:        workflowID,
+				TaskQueue: cfg.TemporalTaskQueue,
+			}
+
+			_, err = sdkClient.ExecuteWorkflow(r.Context(), workflowOptions, "PaymentGatedRegistrationWorkflow", workflowInput)
+			if err != nil {
+				logger.Error("failed to start payment workflow", "error", err, "workflow_id", workflowID)
+				writeError(w, "failed to start payment workflow", http.StatusInternalServerError)
+				return
+			}
+
+			logger.Info("payment workflow started",
+				"workflow_id", workflowID,
+				"invoice_id", invoice.ID,
+				"address", req.Address,
+			)
+
+			// Return 402 Payment Required with invoice and workflow ID
+			response := map[string]interface{}{
+				"status":      "payment_required",
+				"invoice":     invoice,
+				"workflow_id": workflowID,
+				"status_url":  fmt.Sprintf("/api/v1/registration-status/%s", workflowID),
+			}
+			writeJSON(w, response, http.StatusPaymentRequired)
+			return
+		}
+
+		// Wallet exists or payment gateway disabled - proceed with normal upsert
 		// Upsert wallet+asset in database (create or update if exists)
 		params := db.UpsertWalletParams{
 			Address:                req.Address,
@@ -228,7 +306,7 @@ func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, cf
 		}
 
 		// Upsert Temporal schedule (create or update if exists)
-		if err := scheduler.UpsertWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, pollInterval); err != nil {
+		if err := temporalClient.UpsertWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, pollInterval); err != nil {
 			logger.Error("failed to upsert schedule", "address", req.Address, "network", req.Network, "error", err)
 
 			// Rollback: delete the wallet asset we just created/updated
@@ -257,7 +335,7 @@ func handleRegisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, cf
 // handleUnregisterWalletAsset returns a handler that unregisters a wallet+asset
 // and deletes its Temporal schedule.
 // DELETE /api/v1/wallet-assets/{address}?network={network}&asset_type={type}&token_mint={mint}
-func handleUnregisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, logger *slog.Logger) http.Handler {
+func handleUnregisterWalletAsset(store *db.Store, temporalClient *temporal.Client, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		address := r.PathValue("address")
 		network := r.URL.Query().Get("network")
@@ -305,7 +383,7 @@ func handleUnregisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, 
 
 		// Delete Temporal schedule first (before DB)
 		// If this fails, we don't want to delete the wallet asset from DB
-		if err := scheduler.DeleteWalletAssetSchedule(r.Context(), address, network, assetType, tokenMint); err != nil {
+		if err := temporalClient.DeleteWalletAssetSchedule(r.Context(), address, network, assetType, tokenMint); err != nil {
 			logger.Error("failed to delete schedule", "address", address, "network", network, "error", err)
 			writeError(w, "failed to delete schedule for wallet asset", http.StatusInternalServerError)
 			return
@@ -327,6 +405,78 @@ func handleUnregisterWalletAsset(store *db.Store, scheduler temporal.Scheduler, 
 			"token_mint", tokenMint,
 		)
 		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
+// handleGetRegistrationStatus returns a handler that checks the status of a payment-gated registration workflow.
+// GET /api/v1/registration-status/{workflow_id}
+func handleGetRegistrationStatus(temporalClient *temporal.Client, logger *slog.Logger) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		workflowID := r.PathValue("workflow_id")
+
+		if workflowID == "" {
+			writeError(w, "workflow_id is required", http.StatusBadRequest)
+			return
+		}
+
+		// Query workflow execution using SDK client directly
+		sdkClient := temporalClient.SDKClient()
+		describeResp, err := sdkClient.DescribeWorkflowExecution(r.Context(), workflowID, "")
+		if err != nil {
+			logger.Debug("workflow not found", "workflow_id", workflowID, "error", err)
+			writeError(w, "workflow not found", http.StatusNotFound)
+			return
+		}
+
+		// Check if workflow is still running (status 1 = Running)
+		isRunning := describeResp.WorkflowExecutionInfo.Status == 1
+		if isRunning {
+			logger.Debug("workflow still running", "workflow_id", workflowID)
+			writeJSON(w, map[string]interface{}{
+				"workflow_id": workflowID,
+				"status":      "pending",
+				"state":       describeResp.WorkflowExecutionInfo.Status.String(),
+			}, http.StatusOK)
+			return
+		}
+
+		// Workflow completed - get result using SDK client
+		workflowRun := sdkClient.GetWorkflow(r.Context(), workflowID, "")
+		var wfResult temporal.PaymentGatedRegistrationResult
+		if err := workflowRun.Get(r.Context(), &wfResult); err != nil {
+			logger.Error("failed to get workflow result", "workflow_id", workflowID, "error", err)
+
+			// Workflow may have failed
+			writeJSON(w, map[string]interface{}{
+				"workflow_id": workflowID,
+				"status":      "failed",
+				"error":       err.Error(),
+			}, http.StatusOK)
+			return
+		}
+
+		// Return workflow result
+		response := map[string]interface{}{
+			"workflow_id":        workflowID,
+			"status":             wfResult.Status,
+			"address":            wfResult.Address,
+			"network":            wfResult.Network,
+			"asset_type":         wfResult.AssetType,
+			"token_mint":         wfResult.TokenMint,
+			"payment_amount":     wfResult.PaymentAmount,
+		}
+
+		if wfResult.PaymentSignature != nil {
+			response["payment_signature"] = *wfResult.PaymentSignature
+		}
+		if !wfResult.RegisteredAt.IsZero() {
+			response["registered_at"] = wfResult.RegisteredAt
+		}
+		if wfResult.Error != nil {
+			response["error"] = *wfResult.Error
+		}
+
+		writeJSON(w, response, http.StatusOK)
 	})
 }
 

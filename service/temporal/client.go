@@ -246,10 +246,25 @@ func (c *Client) DeleteWalletAssetSchedule(ctx context.Context, address string, 
 	return nil
 }
 
+// SDKClient returns the underlying Temporal SDK client for direct workflow operations.
+func (c *Client) SDKClient() client.Client {
+	return c.client
+}
+
+// TaskQueue returns the configured task queue for this client.
+func (c *Client) TaskQueue() string {
+	return c.taskQueue
+}
+
 // Close closes the Temporal client connection.
 func (c *Client) Close() {
 	c.logger.Info("closing temporal client")
 	c.client.Close()
+}
+
+// scheduleID generates a unique schedule ID for a wallet asset.
+func scheduleID(address string, network string, assetType string, tokenMint string) string {
+	return "poll-wallet-" + network + "-" + address + "-" + assetType + "-" + tokenMint
 }
 
 // temporalLogger adapts slog.Logger to Temporal's logger interface.

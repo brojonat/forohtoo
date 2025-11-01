@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	forohtoo "github.com/brojonat/forohtoo/client"
 	"github.com/brojonat/forohtoo/service/metrics"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -21,12 +22,14 @@ type WorkerConfig struct {
 	USDCDevnetMintAddress  string // SPL token mint address for USDC on devnet
 
 	// Dependencies
-	Store         StoreInterface
-	MainnetClient SolanaClientInterface
-	DevnetClient  SolanaClientInterface
-	Publisher     PublisherInterface
-	Metrics       *metrics.Metrics // Optional: if nil, no metrics will be recorded
-	Logger        *slog.Logger
+	Store          StoreInterface
+	MainnetClient  SolanaClientInterface
+	DevnetClient   SolanaClientInterface
+	Publisher      PublisherInterface
+	ForohtooClient *forohtoo.Client // Forohtoo client for awaiting payment transactions
+	TemporalClient *Client          // Temporal client for creating wallet schedules
+	Metrics        *metrics.Metrics // Optional: if nil, no metrics will be recorded
+	Logger         *slog.Logger
 }
 
 // Worker wraps a Temporal worker and provides lifecycle management.
@@ -83,9 +86,12 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 		MaxConcurrentWorkflowTaskExecutionSize: 10,
 	})
 
-	// Register workflow
+	// Register workflows
 	w.RegisterWorkflow(PollWalletWorkflow)
-	logger.Info("registered workflow", "name", "PollWalletWorkflow")
+	w.RegisterWorkflow(PaymentGatedRegistrationWorkflow)
+	logger.Info("registered workflows",
+		"workflows", []string{"PollWalletWorkflow", "PaymentGatedRegistrationWorkflow"},
+	)
 
 	// Create activities instance with dependencies
 	activities := NewActivities(
@@ -93,6 +99,8 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 		config.MainnetClient,
 		config.DevnetClient,
 		config.Publisher,
+		config.ForohtooClient,
+		config.TemporalClient,
 		config.Metrics,
 		logger,
 	)
@@ -102,9 +110,17 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 	w.RegisterActivity(activities.GetExistingTransactionSignatures)
 	w.RegisterActivity(activities.PollSolana)
 	w.RegisterActivity(activities.WriteTransactions)
+	w.RegisterActivity(activities.AwaitPayment)
+	w.RegisterActivity(activities.RegisterWallet)
 
 	logger.Info("registered activities",
-		"activities", []string{"GetExistingTransactionSignatures", "PollSolana", "WriteTransactions"},
+		"activities", []string{
+			"GetExistingTransactionSignatures",
+			"PollSolana",
+			"WriteTransactions",
+			"AwaitPayment",
+			"RegisterWallet",
+		},
 	)
 
 	return &Worker{

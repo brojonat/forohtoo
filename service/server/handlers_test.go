@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
@@ -17,6 +18,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// MockTemporalClient implements a mock temporal client for testing
+type MockTemporalClient struct{}
+
+func (m *MockTemporalClient) UpsertWalletAssetSchedule(ctx context.Context, address, network, assetType, tokenMint string, ata *string, interval time.Duration) error {
+	return nil
+}
+
+func (m *MockTemporalClient) DeleteWalletAssetSchedule(ctx context.Context, address, network, assetType, tokenMint string) error {
+	return nil
+}
 
 func setupTestStore(t *testing.T) *db.Store {
 	t.Helper()
@@ -46,12 +58,11 @@ func setupTestStore(t *testing.T) *db.Store {
 func TestRegisterWallet_PathologicalInput(t *testing.T) {
 	store := setupTestStore(t)
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	scheduler := temporal.NewMockScheduler()
 	cfg := &config.Config{
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
-	handler := handleRegisterWalletAsset(store, scheduler, cfg, logger)
+	handler := handleRegisterWalletAsset(store, (*temporal.Client)(nil), cfg, logger)
 
 	tests := []struct {
 		name           string
@@ -216,12 +227,12 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 func TestRegisterWallet_ValidInput(t *testing.T) {
 	store := setupTestStore(t)
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	scheduler := temporal.NewMockScheduler()
+	temporalClient := (*temporal.Client)(nil)
 	cfg := &config.Config{
 		USDCMainnetMintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		USDCDevnetMintAddress:  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 	}
-	handler := handleRegisterWalletAsset(store, scheduler, cfg, logger)
+	handler := handleRegisterWalletAsset(store, temporalClient, cfg, logger)
 
 	tests := []struct {
 		name     string

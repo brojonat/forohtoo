@@ -241,7 +241,7 @@ type Transaction struct {
 	FromAddress        *string   `json:"from_address,omitempty"` // Source/sender wallet
 	Amount             int64     `json:"amount"`
 	TokenType          string    `json:"token_type"`
-	Memo               string    `json:"memo,omitempty"`
+	Memo               *string   `json:"memo,omitempty"`
 	Timestamp          time.Time `json:"timestamp"`
 	BlockTime          time.Time `json:"block_time"`
 	ConfirmationStatus string    `json:"confirmation_status"`

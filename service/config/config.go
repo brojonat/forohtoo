@@ -11,8 +11,9 @@ import (
 // All required fields are validated at startup to ensure fail-fast behavior.
 type Config struct {
 	// Server configuration
-	ServerAddr string
-	LogLevel   string
+	ServerAddr        string
+	LogLevel          string
+	ForohtooServerURL string // URL of the forohtoo server for SSE streaming
 
 	// Database configuration
 	DatabaseURL string
@@ -36,6 +37,20 @@ type Config struct {
 	// Polling configuration
 	DefaultPollInterval time.Duration
 	MinPollInterval     time.Duration
+
+	// Payment gateway configuration
+	PaymentGateway PaymentGatewayConfig
+}
+
+// PaymentGatewayConfig holds payment gateway settings for wallet registration fees.
+// All payments are in USDC (using the network-appropriate USDC mint address).
+type PaymentGatewayConfig struct {
+	Enabled         bool          `json:"enabled"`           // Enable payment gateway
+	ServiceWallet   string        `json:"service_wallet"`    // Forohtoo's wallet address for receiving USDC payments
+	ServiceNetwork  string        `json:"service_network"`   // "mainnet" or "devnet"
+	FeeAmount       int64         `json:"fee_amount"`        // Registration fee in USDC base units (6 decimals: 1 USDC = 1000000)
+	PaymentTimeout  time.Duration `json:"payment_timeout"`   // How long to wait for payment (default: 24h)
+	MemoPrefix      string        `json:"memo_prefix"`       // Prefix for payment memos (default: "forohtoo-reg:")
 }
 
 // Load reads configuration from environment variables and validates all required fields.
@@ -47,6 +62,7 @@ func Load() (*Config, error) {
 	// Server configuration
 	cfg.ServerAddr = getEnvOrDefault("SERVER_ADDR", ":8080")
 	cfg.LogLevel = getEnvOrDefault("LOG_LEVEL", "info")
+	cfg.ForohtooServerURL = getEnvOrDefault("FOROHTOO_SERVER_URL", "http://localhost:8080")
 
 	// Database configuration
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
@@ -113,6 +129,12 @@ func Load() (*Config, error) {
 	if cfg.MinPollInterval > cfg.DefaultPollInterval {
 		errs = append(errs, fmt.Errorf("MIN_POLL_INTERVAL (%v) cannot be greater than DEFAULT_POLL_INTERVAL (%v)",
 			cfg.MinPollInterval, cfg.DefaultPollInterval))
+	}
+
+	// Payment gateway configuration
+	cfg.PaymentGateway = loadPaymentGatewayConfig()
+	if err := cfg.PaymentGateway.Validate(); err != nil {
+		errs = append(errs, err)
 	}
 
 	// Return all validation errors
@@ -252,4 +274,108 @@ func (c *Config) GetUSDCMintForNetwork(network string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported network: %s", network)
 	}
+}
+
+// LoadDefaults sets default values for payment gateway configuration.
+func (p *PaymentGatewayConfig) LoadDefaults() {
+	p.Enabled = false
+	p.FeeAmount = 1000000 // 1 USDC (USDC has 6 decimals)
+	p.PaymentTimeout = 24 * time.Hour
+	p.MemoPrefix = "forohtoo-reg:"
+	p.ServiceNetwork = "mainnet"
+}
+
+// LoadFromEnv loads payment gateway configuration from environment variables.
+func (p *PaymentGatewayConfig) LoadFromEnv() error {
+	// Load defaults first
+	p.LoadDefaults()
+
+	// Override with environment variables
+	if os.Getenv("PAYMENT_GATEWAY_ENABLED") == "true" {
+		p.Enabled = true
+	}
+
+	p.ServiceWallet = os.Getenv("PAYMENT_GATEWAY_SERVICE_WALLET")
+
+	if network := os.Getenv("PAYMENT_GATEWAY_SERVICE_NETWORK"); network != "" {
+		p.ServiceNetwork = network
+	}
+
+	// Parse FeeAmount (in USDC base units: 1 USDC = 1000000)
+	if feeAmountStr := os.Getenv("PAYMENT_GATEWAY_FEE_AMOUNT"); feeAmountStr != "" {
+		parsed, err := strconv.ParseInt(feeAmountStr, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid PAYMENT_GATEWAY_FEE_AMOUNT: %w", err)
+		}
+		p.FeeAmount = parsed
+	}
+
+	// Parse PaymentTimeout
+	if timeoutStr := os.Getenv("PAYMENT_GATEWAY_PAYMENT_TIMEOUT"); timeoutStr != "" {
+		parsed, err := time.ParseDuration(timeoutStr)
+		if err != nil {
+			return fmt.Errorf("invalid PAYMENT_GATEWAY_PAYMENT_TIMEOUT: %w", err)
+		}
+		p.PaymentTimeout = parsed
+	}
+
+	// Memo prefix
+	if prefix := os.Getenv("PAYMENT_GATEWAY_MEMO_PREFIX"); prefix != "" {
+		p.MemoPrefix = prefix
+	}
+
+	return nil
+}
+
+// loadPaymentGatewayConfig loads payment gateway configuration from environment variables.
+func loadPaymentGatewayConfig() PaymentGatewayConfig {
+	var cfg PaymentGatewayConfig
+	cfg.LoadFromEnv() // Ignore error here, validation happens separately
+	return cfg
+}
+
+// Validate checks if the PaymentGatewayConfig is valid.
+func (p *PaymentGatewayConfig) Validate() error {
+	if !p.Enabled {
+		// If disabled, no validation needed
+		return nil
+	}
+
+	var errs []error
+
+	// ServiceWallet is required when enabled
+	if p.ServiceWallet == "" {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_SERVICE_WALLET is required when payment gateway is enabled"))
+	}
+
+	// ServiceWallet must be valid Solana address (32-44 characters, base58)
+	if p.ServiceWallet != "" && (len(p.ServiceWallet) < 32 || len(p.ServiceWallet) > 44) {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_SERVICE_WALLET must be a valid Solana address (32-44 characters)"))
+	}
+
+	// ServiceNetwork must be mainnet or devnet
+	if p.ServiceNetwork != "mainnet" && p.ServiceNetwork != "devnet" {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_SERVICE_NETWORK must be 'mainnet' or 'devnet'"))
+	}
+
+	// FeeAmount must be positive
+	if p.FeeAmount <= 0 {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_FEE_AMOUNT must be positive"))
+	}
+
+	// PaymentTimeout must be positive
+	if p.PaymentTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_PAYMENT_TIMEOUT must be positive"))
+	}
+
+	// MemoPrefix should not be empty
+	if p.MemoPrefix == "" {
+		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_MEMO_PREFIX should not be empty"))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("payment gateway configuration validation failed: %v", errs)
+	}
+
+	return nil
 }

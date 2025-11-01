@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/brojonat/forohtoo/client"
 	"github.com/brojonat/forohtoo/service/db"
 	"github.com/brojonat/forohtoo/service/metrics"
 	natspkg "github.com/brojonat/forohtoo/service/nats"
@@ -85,6 +86,8 @@ type StoreInterface interface {
 	GetTransaction(context.Context, string, string) (*db.Transaction, error)
 	GetWallet(context.Context, string, string, string, string) (*db.Wallet, error)
 	GetTransactionSignaturesByWallet(context.Context, string, string, *time.Time, int32) ([]string, error)
+	UpsertWallet(context.Context, db.UpsertWalletParams) (*db.Wallet, error)
+	DeleteWallet(context.Context, string, string, string, string) error
 }
 
 // SolanaClientInterface defines the Solana operations needed by activities.
@@ -107,6 +110,8 @@ type Activities struct {
 	mainnetClient      SolanaClientInterface
 	devnetClient       SolanaClientInterface
 	publisher          PublisherInterface
+	forohtooClient     *client.Client  // For awaiting payment transactions
+	temporalClient     *Client         // For creating/deleting wallet schedules
 	metrics            *metrics.Metrics
 	logger             *slog.Logger
 }
@@ -118,6 +123,8 @@ func NewActivities(
 	mainnetClient SolanaClientInterface,
 	devnetClient SolanaClientInterface,
 	publisher PublisherInterface,
+	forohtooClient *client.Client,
+	temporalClient *Client,
 	m *metrics.Metrics,
 	logger *slog.Logger,
 ) *Activities {
@@ -125,12 +132,14 @@ func NewActivities(
 		logger = slog.Default()
 	}
 	return &Activities{
-		store:         store,
-		mainnetClient: mainnetClient,
-		devnetClient:  devnetClient,
-		publisher:     publisher,
-		metrics:       m,
-		logger:        logger,
+		store:          store,
+		mainnetClient:  mainnetClient,
+		devnetClient:   devnetClient,
+		publisher:      publisher,
+		forohtooClient: forohtooClient,
+		temporalClient: temporalClient,
+		metrics:        m,
+		logger:         logger,
 	}
 }
 
