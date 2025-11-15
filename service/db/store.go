@@ -291,7 +291,7 @@ func (s *Store) CreateWallet(ctx context.Context, params CreateWalletParams) (*W
 }
 
 // UpsertWallet creates or updates a wallet+asset for monitoring.
-// If the wallet already exists, it updates the poll interval, ATA, and status.
+// If the wallet already exists, it updates the ATA and status.
 func (s *Store) UpsertWallet(ctx context.Context, params UpsertWalletParams) (*Wallet, error) {
 	sqlcParams := dbgen.UpsertWalletParams{
 		Address:                params.Address,
@@ -514,23 +514,28 @@ func dbWalletToDomain(db *dbgen.Wallet) *Wallet {
 	}
 }
 
-func pgIntervalFromDuration(d time.Duration) pgtype.Interval {
-	return pgtype.Interval{
-		Microseconds: d.Microseconds(),
-		Valid:        true,
-	}
-}
-
-func durationFromPgInterval(i pgtype.Interval) time.Duration {
-	if !i.Valid {
-		return 0
-	}
-	return time.Duration(i.Microseconds) * time.Microsecond
-}
-
 func timePtrFromPgTimestamptz(t pgtype.Timestamptz) *time.Time {
 	if !t.Valid {
 		return nil
 	}
 	return &t.Time
+}
+
+// pgIntervalFromDuration converts a Go time.Duration to a PostgreSQL interval.
+func pgIntervalFromDuration(d time.Duration) pgtype.Interval {
+	// PostgreSQL interval uses microseconds for precision
+	microseconds := d.Microseconds()
+	return pgtype.Interval{
+		Microseconds: microseconds,
+		Valid:        true,
+	}
+}
+
+// durationFromPgInterval converts a PostgreSQL interval to a Go time.Duration.
+func durationFromPgInterval(i pgtype.Interval) time.Duration {
+	if !i.Valid {
+		return 0
+	}
+	// Convert microseconds back to duration
+	return time.Duration(i.Microseconds) * time.Microsecond
 }

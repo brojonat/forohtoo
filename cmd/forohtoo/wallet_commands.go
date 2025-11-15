@@ -57,12 +57,6 @@ func walletAddCommand() *cli.Command {
 				Name:  "token-mint",
 				Usage: "Token mint address (required when --asset=spl-token, e.g., USDC mint). Leave empty for SOL.",
 			},
-			&cli.DurationFlag{
-				Name:    "poll-interval",
-				Aliases: []string{"i"},
-				Value:   30 * time.Second,
-				Usage:   "How often to poll for new transactions (e.g., 30s, 1m)",
-			},
 			&cli.BoolFlag{
 				Name:    "json",
 				Aliases: []string{"j"},
@@ -79,7 +73,6 @@ func walletAddCommand() *cli.Command {
 			network := c.String("network")
 			assetType := c.String("asset")
 			tokenMint := c.String("token-mint")
-			pollInterval := c.Duration("poll-interval")
 			jsonOutput := c.Bool("json")
 
 			// Validate network
@@ -108,18 +101,17 @@ func walletAddCommand() *cli.Command {
 
 			cl := client.NewClient(serverURL, nil, logger)
 
-			if err := cl.RegisterAsset(context.Background(), address, network, assetType, tokenMint, pollInterval); err != nil {
+			if err := cl.RegisterAsset(context.Background(), address, network, assetType, tokenMint); err != nil {
 				return fmt.Errorf("failed to register wallet asset: %w", err)
 			}
 
 			if jsonOutput {
 				data, _ := json.Marshal(map[string]interface{}{
-					"address":       address,
-					"network":       network,
-					"asset_type":    assetType,
-					"token_mint":    tokenMint,
-					"poll_interval": pollInterval.String(),
-					"status":        "registered",
+					"address":    address,
+					"network":    network,
+					"asset_type": assetType,
+					"token_mint": tokenMint,
+					"status":     "registered",
 				})
 				fmt.Println(string(data))
 			} else {
@@ -130,7 +122,6 @@ func walletAddCommand() *cli.Command {
 				if tokenMint != "" {
 					fmt.Printf("  Token Mint: %s\n", tokenMint)
 				}
-				fmt.Printf("  Poll Interval: %s\n", pollInterval)
 			}
 
 			return nil
@@ -296,7 +287,6 @@ func walletGetCommand() *cli.Command {
 				fmt.Printf("Address:       %s\n", wallet.Address)
 				fmt.Printf("Network:       %s\n", wallet.Network)
 				fmt.Printf("Status:        %s\n", wallet.Status)
-				fmt.Printf("Poll Interval: %s\n", wallet.PollInterval)
 				if wallet.LastPollTime != nil {
 					fmt.Printf("Last Poll:     %s\n", wallet.LastPollTime.Format(time.RFC3339))
 				} else {
@@ -362,7 +352,6 @@ func walletListCommand() *cli.Command {
 					fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 					fmt.Printf("Address:       %s\n", w.Address)
 					fmt.Printf("Status:        %s\n", w.Status)
-					fmt.Printf("Poll Interval: %s\n", w.PollInterval)
 					if w.LastPollTime != nil {
 						fmt.Printf("Last Poll:     %s\n", w.LastPollTime.Format(time.RFC3339))
 					} else {

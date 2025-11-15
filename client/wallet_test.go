@@ -24,14 +24,13 @@ func TestRegister_Success(t *testing.T) {
 
 		assert.Equal(t, "wallet123", body["address"])
 		assert.Equal(t, "mainnet", body["network"])
-		assert.Equal(t, "30s", body["poll_interval"])
 
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, nil, nil)
-	err := client.RegisterAsset(context.Background(), "wallet123", "mainnet", "sol", "", 30*time.Second)
+	err := client.RegisterAsset(context.Background(), "wallet123", "mainnet", "sol", "")
 	assert.NoError(t, err)
 }
 
@@ -46,7 +45,7 @@ func TestRegister_ServerError(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, nil, nil)
-	err := client.RegisterAsset(context.Background(), "invalid", "mainnet", "sol", "", 30*time.Second)
+	err := client.RegisterAsset(context.Background(), "invalid", "mainnet", "sol", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid wallet address")
 }
@@ -91,10 +90,12 @@ func TestGet_Success(t *testing.T) {
 		assert.Equal(t, "/api/v1/wallet-assets/wallet123", r.URL.Path)
 		assert.Equal(t, "mainnet", r.URL.Query().Get("network"))
 
-		// Return response in server format (poll_interval as string)
+		// Return response in server format
 		response := map[string]interface{}{
 			"address":        "wallet123",
 			"network":        "mainnet",
+			"asset_type":     "sol",
+			"token_mint":     "",
 			"poll_interval":  "30s",
 			"last_poll_time": lastPoll,
 			"status":         "active",
@@ -115,8 +116,8 @@ func TestGet_Success(t *testing.T) {
 
 	assert.Equal(t, "wallet123", wallet.Address)
 	assert.Equal(t, "mainnet", wallet.Network)
-	assert.Equal(t, 30*time.Second, wallet.PollInterval)
 	assert.Equal(t, "active", wallet.Status)
+	assert.Equal(t, 30*time.Second, wallet.PollInterval)
 	assert.NotNil(t, wallet.LastPollTime)
 }
 
@@ -144,11 +145,14 @@ func TestList_Success(t *testing.T) {
 		assert.Equal(t, "GET", r.Method)
 		assert.Equal(t, "/api/v1/wallet-assets", r.URL.Path)
 
-		// Return response in server format (poll_interval as string)
+		// Return response in server format
 		response := map[string]interface{}{
 			"wallets": []map[string]interface{}{
 				{
 					"address":       "wallet123",
+					"network":       "mainnet",
+					"asset_type":    "sol",
+					"token_mint":    "",
 					"poll_interval": "30s",
 					"status":        "active",
 					"created_at":    now,
@@ -156,7 +160,10 @@ func TestList_Success(t *testing.T) {
 				},
 				{
 					"address":       "wallet456",
-					"poll_interval": "1m0s",
+					"network":       "mainnet",
+					"asset_type":    "sol",
+					"token_mint":    "",
+					"poll_interval": "30s",
 					"status":        "active",
 					"created_at":    now,
 					"updated_at":    now,

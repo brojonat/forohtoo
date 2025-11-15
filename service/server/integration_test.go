@@ -91,7 +91,7 @@ func TestServerIntegration(t *testing.T) {
 
 	// Test 1: Register a wallet
 	t.Run("register wallet", func(t *testing.T) {
-		err := c.RegisterAsset(ctx, "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "mainnet", "sol", "", 60*time.Second)
+		err := c.RegisterAsset(ctx, "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "mainnet", "sol", "")
 		require.NoError(t, err)
 	})
 
@@ -105,7 +105,6 @@ func TestServerIntegration(t *testing.T) {
 		var found bool
 		for _, w := range wallets {
 			if w.Address == "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" && w.Network == "mainnet" {
-				assert.Equal(t, 60*time.Second, w.PollInterval)
 				assert.Equal(t, "active", w.Status)
 				found = true
 				break
@@ -117,7 +116,7 @@ func TestServerIntegration(t *testing.T) {
 	// Test 3: List wallets
 	t.Run("list wallets", func(t *testing.T) {
 		// Register another wallet
-		err := c.RegisterAsset(ctx, "SysvarRent111111111111111111111111111111111", "mainnet", "sol", "", 60*time.Second)
+		err := c.RegisterAsset(ctx, "SysvarRent111111111111111111111111111111111", "mainnet", "sol", "")
 		require.NoError(t, err)
 
 		wallets, err := c.List(ctx)
@@ -149,25 +148,24 @@ func TestServerIntegration(t *testing.T) {
 		assert.Nil(t, wallet)
 	})
 
-	// Test 6: Register with valid poll interval
-	t.Run("register with valid poll interval", func(t *testing.T) {
-		err := c.RegisterAsset(ctx, "SysvarC1ock11111111111111111111111111111111", "mainnet", "sol", "", 5*time.Minute)
+	// Test 6: Register another wallet
+	t.Run("register another wallet", func(t *testing.T) {
+		err := c.RegisterAsset(ctx, "SysvarC1ock11111111111111111111111111111111", "mainnet", "sol", "")
 		require.NoError(t, err)
 	})
 
 	// Test 7: Duplicate registration (upsert behavior - should succeed)
 	t.Run("duplicate registration", func(t *testing.T) {
-		// Re-registering should succeed (upsert behavior) with updated interval
-		err := c.RegisterAsset(ctx, "SysvarRent111111111111111111111111111111111", "mainnet", "sol", "", 120*time.Second)
+		// Re-registering should succeed (upsert behavior)
+		err := c.RegisterAsset(ctx, "SysvarRent111111111111111111111111111111111", "mainnet", "sol", "")
 		require.NoError(t, err)
 
-		// Verify the interval was updated
+		// Verify the wallet still exists
 		wallets, err := c.List(ctx)
 		require.NoError(t, err)
 		var found bool
 		for _, w := range wallets {
 			if w.Address == "SysvarRent111111111111111111111111111111111" && w.Network == "mainnet" {
-				assert.Equal(t, 120*time.Second, w.PollInterval)
 				found = true
 				break
 			}

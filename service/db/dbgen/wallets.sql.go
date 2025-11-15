@@ -408,8 +408,8 @@ INSERT INTO wallets (
 )
 ON CONFLICT (address, network, asset_type, token_mint)
 DO UPDATE SET
-    poll_interval = EXCLUDED.poll_interval,
     associated_token_address = EXCLUDED.associated_token_address,
+    poll_interval = EXCLUDED.poll_interval,
     status = EXCLUDED.status,
     updated_at = NOW()
 RETURNING address, poll_interval, last_poll_time, status, created_at, updated_at, network, asset_type, token_mint, associated_token_address

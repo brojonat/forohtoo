@@ -26,8 +26,8 @@ INSERT INTO wallets (
 )
 ON CONFLICT (address, network, asset_type, token_mint)
 DO UPDATE SET
-    poll_interval = EXCLUDED.poll_interval,
     associated_token_address = EXCLUDED.associated_token_address,
+    poll_interval = EXCLUDED.poll_interval,
     status = EXCLUDED.status,
     updated_at = NOW()
 RETURNING *;
@@ -61,14 +61,6 @@ SET
 WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4
 RETURNING *;
 
--- name: UpdateWalletPollInterval :one
-UPDATE wallets
-SET
-    poll_interval = $5,
-    updated_at = NOW()
-WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4
-RETURNING *;
-
 -- name: DeleteWallet :exec
 DELETE FROM wallets
 WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4;
@@ -85,3 +77,11 @@ ORDER BY network, asset_type, token_mint;
 SELECT * FROM wallets
 WHERE address = $1 AND network = $2
 ORDER BY asset_type, token_mint;
+
+-- name: UpdateWalletPollInterval :one
+UPDATE wallets
+SET
+    poll_interval = $5,
+    updated_at = NOW()
+WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4
+RETURNING *;

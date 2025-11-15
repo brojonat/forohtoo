@@ -54,7 +54,7 @@ func TestListWalletsCommand(t *testing.T) {
 
 	_, err = store.CreateWallet(context.Background(), db.CreateWalletParams{
 		Address:      "TestWa11et22222222222222222222222222222",
-		PollInterval: 60 * time.Second,
+		PollInterval: 30 * time.Second,
 		Status:       "paused",
 	})
 	require.NoError(t, err)
@@ -171,7 +171,6 @@ func TestGetWalletCommand(t *testing.T) {
 	// Verify output
 	assert.Contains(t, output, wallet.Address)
 	assert.Contains(t, output, "active")
-	assert.Contains(t, output, "30s")
 }
 
 func TestGetWalletCommand_NotFound(t *testing.T) {

@@ -86,7 +86,7 @@ func TestGetWallet(t *testing.T) {
 	created, err := store.CreateWallet(ctx, CreateWalletParams{
 		Address:      "wallet456",
 		Network:      "mainnet",
-		PollInterval: 60 * time.Second,
+		PollInterval: 30 * time.Second,
 		Status:       "active",
 	})
 	require.NoError(t, err)
@@ -98,7 +98,6 @@ func TestGetWallet(t *testing.T) {
 
 	assert.Equal(t, created.Address, wallet.Address)
 	assert.Equal(t, created.Network, wallet.Network)
-	assert.Equal(t, created.PollInterval, wallet.PollInterval)
 	assert.Equal(t, created.Status, wallet.Status)
 }
 
@@ -346,42 +345,3 @@ func TestWalletExists(t *testing.T) {
 	assert.False(t, exists)
 }
 
-func TestWalletPollIntervalConversion(t *testing.T) {
-	SkipIfNoTestDB(t)
-
-	store := NewTestStore(t)
-	defer store.Close()
-	defer store.Cleanup(t)
-
-	ctx := context.Background()
-
-	testCases := []struct {
-		name     string
-		interval time.Duration
-	}{
-		{"30 seconds", 30 * time.Second},
-		{"1 minute", time.Minute},
-		{"5 minutes", 5 * time.Minute},
-		{"1 hour", time.Hour},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			address := "wallet_" + tc.name
-
-			wallet, err := store.CreateWallet(ctx, CreateWalletParams{
-				Address:      address,
-				Network:      "mainnet",
-				PollInterval: tc.interval,
-				Status:       "active",
-			})
-			require.NoError(t, err)
-			assert.Equal(t, tc.interval, wallet.PollInterval)
-
-			// Verify roundtrip
-			fetched, err := store.GetWallet(ctx, address, "mainnet", "", "")
-			require.NoError(t, err)
-			assert.Equal(t, tc.interval, fetched.PollInterval)
-		})
-	}
-}

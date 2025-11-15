@@ -51,7 +51,7 @@ func NewClient(baseURL string, httpClient *http.Client, logger *slog.Logger) *Cl
 }
 
 // RegisterAsset tells the server to start monitoring a wallet asset for transactions.
-func (c *Client) RegisterAsset(ctx context.Context, address string, network string, assetType string, tokenMint string, pollInterval time.Duration) error {
+func (c *Client) RegisterAsset(ctx context.Context, address string, network string, assetType string, tokenMint string) error {
 	reqBody := map[string]interface{}{
 		"address": address,
 		"network": network,
@@ -59,7 +59,6 @@ func (c *Client) RegisterAsset(ctx context.Context, address string, network stri
 			"type":       assetType,
 			"token_mint": tokenMint,
 		},
-		"poll_interval": pollInterval.String(),
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -89,14 +88,12 @@ func (c *Client) RegisterAsset(ctx context.Context, address string, network stri
 			"address", address,
 			"asset_type", assetType,
 			"token_mint", tokenMint,
-			"poll_interval", pollInterval,
 		)
 	} else {
 		c.logger.Debug("wallet asset registered",
 			"address", address,
 			"asset_type", assetType,
 			"token_mint", tokenMint,
-			"poll_interval", pollInterval,
 		)
 	}
 	return nil
@@ -198,7 +195,6 @@ func (c *Client) List(ctx context.Context) ([]*Wallet, error) {
 }
 
 // walletResponse is the API response format for a wallet asset.
-// The server returns poll_interval as a string (e.g. "30s").
 type walletResponse struct {
 	Address                string     `json:"address"`
 	Network                string     `json:"network"`
@@ -214,9 +210,10 @@ type walletResponse struct {
 
 // responseToWallet converts an API response to a domain Wallet.
 func responseToWallet(resp *walletResponse) (*Wallet, error) {
+	// Parse poll_interval string to duration
 	pollInterval, err := time.ParseDuration(resp.PollInterval)
 	if err != nil {
-		return nil, fmt.Errorf("invalid poll_interval %q: %w", resp.PollInterval, err)
+		return nil, fmt.Errorf("failed to parse poll_interval: %w", err)
 	}
 
 	return &Wallet{

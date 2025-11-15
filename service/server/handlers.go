@@ -20,8 +20,6 @@ import (
 const (
 	maxRequestBodySize = 1 << 20 // 1MB - plenty for wallet registration
 	maxAddressLength   = 100     // Solana addresses are 44 chars, give buffer
-	minPollInterval    = 60 * time.Second
-	maxPollInterval    = 24 * time.Hour
 )
 
 var (
@@ -115,13 +113,12 @@ func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client,
 		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 
 		var req struct {
-			Address      string `json:"address"`
-			Network      string `json:"network"` // "mainnet" or "devnet"
-			Asset        struct {
+			Address string `json:"address"`
+			Network string `json:"network"` // "mainnet" or "devnet"
+			Asset   struct {
 				Type      string `json:"type"`       // "sol" or "spl-token"
 				TokenMint string `json:"token_mint"` // required when type == "spl-token"
 			} `json:"asset"`
-			PollInterval string `json:"poll_interval"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -145,20 +142,6 @@ func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client,
 		// Validate network
 		if err := validateNetwork(req.Network); err != nil {
 			logger.Debug("invalid network", "network", req.Network, "error", err)
-			writeError(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		// Parse and validate poll interval
-		pollInterval, err := time.ParseDuration(req.PollInterval)
-		if err != nil {
-			logger.Debug("invalid poll interval", "interval", req.PollInterval, "error", err)
-			writeError(w, "invalid poll_interval: must be a valid duration (e.g. '30s', '1m')", http.StatusBadRequest)
-			return
-		}
-
-		if err := validatePollInterval(pollInterval); err != nil {
-			logger.Debug("invalid poll interval value", "interval", pollInterval, "error", err)
 			writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -247,7 +230,7 @@ func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client,
 				AssetType:              req.Asset.Type,
 				TokenMint:              tokenMint,
 				AssociatedTokenAddress: ata,
-				PollInterval:           pollInterval,
+				PollInterval:           cfg.DefaultPollInterval,
 				ServiceWallet:          cfg.PaymentGateway.ServiceWallet,
 				ServiceNetwork:         cfg.PaymentGateway.ServiceNetwork,
 				FeeAmount:              cfg.PaymentGateway.FeeAmount,
@@ -294,7 +277,7 @@ func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client,
 			AssetType:              req.Asset.Type,
 			TokenMint:              tokenMint,
 			AssociatedTokenAddress: ata,
-			PollInterval:           pollInterval,
+			PollInterval:           cfg.DefaultPollInterval,
 			Status:                 "active",
 		}
 
@@ -306,7 +289,7 @@ func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client,
 		}
 
 		// Upsert Temporal schedule (create or update if exists)
-		if err := temporalClient.UpsertWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, pollInterval); err != nil {
+		if err := temporalClient.UpsertWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, cfg.DefaultPollInterval); err != nil {
 			logger.Error("failed to upsert schedule", "address", req.Address, "network", req.Network, "error", err)
 
 			// Rollback: delete the wallet asset we just created/updated
@@ -323,7 +306,6 @@ func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client,
 			"network", req.Network,
 			"asset_type", req.Asset.Type,
 			"token_mint", tokenMint,
-			"poll_interval", wallet.PollInterval,
 		)
 
 		// Return wallet asset
@@ -487,7 +469,7 @@ type walletResponse struct {
 	AssetType              string     `json:"asset_type"` // "sol" or "spl-token"
 	TokenMint              string     `json:"token_mint"` // empty for SOL, mint address for SPL tokens
 	AssociatedTokenAddress *string    `json:"associated_token_address,omitempty"`
-	PollInterval           string     `json:"poll_interval"`
+	PollInterval           string     `json:"poll_interval"` // duration string like "30s", "1m", etc
 	LastPollTime           *time.Time `json:"last_poll_time,omitempty"`
 	Status                 string     `json:"status"`
 	CreatedAt              time.Time  `json:"created_at"`
@@ -569,23 +551,6 @@ func validateNetwork(network string) error {
 
 	if network != "mainnet" && network != "devnet" {
 		return errorf("invalid network: must be 'mainnet' or 'devnet'")
-	}
-
-	return nil
-}
-
-// validatePollInterval validates a poll interval for reasonable bounds.
-func validatePollInterval(interval time.Duration) error {
-	if interval <= 0 {
-		return errorf("poll_interval must be positive")
-	}
-
-	if interval < minPollInterval {
-		return errorf("poll_interval must be at least %v", minPollInterval)
-	}
-
-	if interval > maxPollInterval {
-		return errorf("poll_interval cannot exceed %v", maxPollInterval)
 	}
 
 	return nil

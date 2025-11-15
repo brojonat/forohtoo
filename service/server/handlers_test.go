@@ -72,7 +72,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 	}{
 		{
 			name:           "extremely large request body",
-			body:           `{"address":"` + strings.Repeat("A", 10*1024*1024) + `","poll_interval":"60s"}`, // 10MB
+			body:           `{"address":"` + strings.Repeat("A", 10*1024*1024) + `"}`, // 10MB
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "request body too large")
@@ -80,7 +80,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "malformed JSON",
-			body:           `{"address":"wallet123","poll_interval":`,
+			body:           `{"address":"wallet123"`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "invalid request body")
@@ -96,7 +96,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "missing address",
-			body:           `{"poll_interval":"60s"}`,
+			body:           `{}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "address is required")
@@ -104,7 +104,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "empty address",
-			body:           `{"address":"","poll_interval":"60s"}`,
+			body:           `{"address":""}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "address is required")
@@ -112,7 +112,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "address too long",
-			body:           `{"address":"` + strings.Repeat("A", 500) + `","poll_interval":"60s"}`,
+			body:           `{"address":"` + strings.Repeat("A", 500) + `"}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "address too long")
@@ -120,7 +120,7 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "address with null bytes",
-			body:           `{"address":"wallet\u0000123","poll_interval":"60s"}`,
+			body:           `{"address":"wallet\u0000123"}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "invalid characters")
@@ -128,55 +128,15 @@ func TestRegisterWallet_PathologicalInput(t *testing.T) {
 		},
 		{
 			name:           "address with SQL injection attempt",
-			body:           `{"address":"wallet'; DROP TABLE wallets; --","poll_interval":"60s"}`,
+			body:           `{"address":"wallet'; DROP TABLE wallets; --"}`,
 			expectedStatus: http.StatusBadRequest,
 			checkError: func(t *testing.T, body string) {
 				assert.Contains(t, body, "invalid characters")
 			},
 		},
 		{
-			name:           "missing poll_interval",
-			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"}}`,
-			expectedStatus: http.StatusBadRequest,
-			checkError: func(t *testing.T, body string) {
-				assert.Contains(t, body, "poll_interval")
-			},
-		},
-		{
-			name:           "invalid poll_interval format",
-			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"not-a-duration"}`,
-			expectedStatus: http.StatusBadRequest,
-			checkError: func(t *testing.T, body string) {
-				assert.Contains(t, body, "invalid poll_interval")
-			},
-		},
-		{
-			name:           "negative poll_interval",
-			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"-30s"}`,
-			expectedStatus: http.StatusBadRequest,
-			checkError: func(t *testing.T, body string) {
-				assert.Contains(t, body, "poll_interval must be positive")
-			},
-		},
-		{
-			name:           "poll_interval too short",
-			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"1ns"}`,
-			expectedStatus: http.StatusBadRequest,
-			checkError: func(t *testing.T, body string) {
-				assert.Contains(t, body, "poll_interval must be at least")
-			},
-		},
-		{
-			name:           "poll_interval too long",
-			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"999999h"}`,
-			expectedStatus: http.StatusBadRequest,
-			checkError: func(t *testing.T, body string) {
-				assert.Contains(t, body, "poll_interval cannot exceed")
-			},
-		},
-		{
 			name:           "extra unexpected fields should be ignored",
-			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"60s","malicious":"data","admin":true}`,
+			body:           `{"address":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"malicious":"data","admin":true}`,
 			expectedStatus: http.StatusCreated,
 			checkError:     nil,
 		},
@@ -235,20 +195,19 @@ func TestRegisterWallet_ValidInput(t *testing.T) {
 	handler := handleRegisterWalletAsset(store, temporalClient, cfg, logger)
 
 	tests := []struct {
-		name     string
-		address  string
-		interval string
+		name    string
+		address string
 	}{
-		{"normal address", "SysvarRent111111111111111111111111111111111", "60s"},
-		{"address with mix", "SysvarC1ock11111111111111111111111111111111", "1m"},
-		{"max length address", "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "60s"}, // Valid Solana address
-		{"minimum poll interval", "Config1111111111111111111111111111111111111", "60s"},
-		{"various durations", "Stake11111111111111111111111111111111111111", "5m"},
+		{"normal address", "SysvarRent111111111111111111111111111111111"},
+		{"address with mix", "SysvarC1ock11111111111111111111111111111111"},
+		{"max length address", "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}, // Valid Solana address
+		{"config address", "Config1111111111111111111111111111111111111"},
+		{"stake address", "Stake11111111111111111111111111111111111111"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body := `{"address":"` + tt.address + `","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},"poll_interval":"` + tt.interval + `"}`
+			body := `{"address":"` + tt.address + `","network":"mainnet","asset":{"type":"spl-token","token_mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"}}`
 			req := httptest.NewRequest("POST", "/api/v1/wallet-assets", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 

@@ -24,6 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Network-aware Temporal workflow scheduling with separate schedules per network
 
 ### Changed
+- **BREAKING**: Service-managed polling intervals - clients can no longer control poll intervals
+  - The service now sets polling intervals via the `DEFAULT_POLL_INTERVAL` environment variable (default: 30s)
+  - Removed `poll_interval` parameter from wallet registration API endpoint (clients cannot specify it)
+  - Wallets still store and return `poll_interval` in responses (for visibility)
+  - Removed `--poll-interval` flag from CLI `wallet add` command
+  - Client `RegisterAsset` method signature changed to remove `pollInterval` parameter:
+    - Old: `RegisterAsset(ctx, address, network, assetType, tokenMint, pollInterval)`
+    - New: `RegisterAsset(ctx, address, network, assetType, tokenMint)`
+  - The service automatically sets `poll_interval = DEFAULT_POLL_INTERVAL` when creating/updating wallets
 - **BREAKING**: Client `Await` method signature changed to include `lookback time.Duration` parameter
   - Old: `Await(ctx, address, network, matcher)`
   - New: `Await(ctx, address, network, lookback, matcher)`
@@ -35,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: Configuration now requires both `SOLANA_MAINNET_RPC_URL` and `SOLANA_DEVNET_RPC_URL` (replaces `SOLANA_RPC_URL`)
 - **BREAKING**: Configuration now requires both `USDC_MAINNET_MINT_ADDRESS` and `USDC_DEVNET_MINT_ADDRESS`
 - **BREAKING**: API endpoints now require `network` parameter:
-  - `POST /api/v1/wallets` - network in JSON body
+  - `POST /api/v1/wallets` - network in JSON body (no longer accepts poll_interval)
   - `GET /api/v1/wallets/{address}?network={network}` - network as query parameter
   - `DELETE /api/v1/wallets/{address}?network={network}` - network as query parameter
   - `GET /api/v1/stream/transactions/{address}?network={network}` - network as query parameter
@@ -50,6 +59,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Add `SOLANA_DEVNET_RPC_URL`
   - Add `USDC_MAINNET_MINT_ADDRESS=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`
   - Add `USDC_DEVNET_MINT_ADDRESS=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`
+  - Optionally set `DEFAULT_POLL_INTERVAL` (default: 30s, e.g., `DEFAULT_POLL_INTERVAL=1m`)
 - Run database migrations: `migrate -path service/db/migrations -database $DATABASE_URL up`
-- Update API calls to include `network` parameter
-- Update CLI commands to include `--network` flag (or rely on default "mainnet")
+- Update API calls:
+  - Include `network` parameter in all wallet operations
+  - Remove `poll_interval` from wallet registration requests (service will set it automatically)
+  - Responses still include `poll_interval` for visibility
+- Update client code:
+  - Remove `pollInterval` argument from `RegisterAsset()` calls
+  - Client `Wallet` struct still has `PollInterval` field (read-only from server)
+  - Update `Await()` calls to include `lookback` parameter
+- Update CLI commands:
+  - Include `--network` flag (or rely on default "mainnet")
+  - Remove `--poll-interval` flag from `wallet add` commands
+  - Optionally use `--poll-interval` flag in `temporal reconcile` command for schedule recreation

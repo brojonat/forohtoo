@@ -445,6 +445,11 @@ func reconcileCommand() *cli.Command {
 				Usage: "Task queue name for created schedules",
 				Value: "forohtoo-wallet-polling",
 			},
+			&cli.DurationFlag{
+				Name:  "poll-interval",
+				Usage: "Poll interval for created schedules (e.g., 30s, 1m)",
+				Value: 30 * time.Second,
+			},
 		},
 		Action: func(c *cli.Context) error {
 			// Get database connection
@@ -601,9 +606,11 @@ func reconcileCommand() *cli.Command {
 			if c.Bool("fix") && (len(missingSchedules) > 0 || len(orphanedSchedules) > 0) {
 				fmt.Printf("\nFixing inconsistencies...\n")
 
+				pollInterval := c.Duration("poll-interval")
+
 				// Create missing schedules
 				for _, key := range missingSchedules {
-					// Get wallet to get poll interval and ATA
+					// Get wallet to get ATA
 					wallet, err := store.GetWallet(ctx, key.Address, key.Network, key.AssetType, key.TokenMint)
 					if err != nil {
 						fmt.Printf("  ✗ Failed to get wallet %s on %s: %v\n", key.Address, key.Network, err)
@@ -616,7 +623,7 @@ func reconcileCommand() *cli.Command {
 					scheduleSpec := client.ScheduleSpec{
 						Intervals: []client.ScheduleIntervalSpec{
 							{
-								Every: wallet.PollInterval,
+								Every: pollInterval,
 							},
 						},
 					}

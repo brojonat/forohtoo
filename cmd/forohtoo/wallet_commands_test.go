@@ -261,8 +261,7 @@ func TestWalletAddCommand(t *testing.T) {
 
 		// Parse request body
 		var req struct {
-			Address      string `json:"address"`
-			PollInterval string `json:"poll_interval"`
+			Address string `json:"address"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("failed to decode request: %v", err)
@@ -273,9 +272,6 @@ func TestWalletAddCommand(t *testing.T) {
 		// Validate request
 		if req.Address != "test-wallet-123" {
 			t.Errorf("unexpected address: %s", req.Address)
-		}
-		if req.PollInterval != "30s" {
-			t.Errorf("unexpected poll_interval: %s", req.PollInterval)
 		}
 
 		w.WriteHeader(http.StatusCreated)
@@ -371,7 +367,7 @@ func TestWalletListCommand(t *testing.T) {
 	lastPoll := now.Add(-5 * time.Minute)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" || r.URL.Path != "/api/v1/wallets" {
+		if r.Method != "GET" || r.URL.Path != "/api/v1/wallet-assets" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -382,20 +378,26 @@ func TestWalletListCommand(t *testing.T) {
 		}{
 			Wallets: []map[string]interface{}{
 				{
-					"address":       "wallet1",
-					"poll_interval": "30s",
+					"address":        "wallet1",
+					"network":        "mainnet",
+					"asset_type":     "sol",
+					"token_mint":     "",
+					"poll_interval":  "30s",
 					"last_poll_time": lastPoll.Format(time.RFC3339),
-					"status":        "active",
-					"created_at":    now.Format(time.RFC3339),
-					"updated_at":    now.Format(time.RFC3339),
+					"status":         "active",
+					"created_at":     now.Format(time.RFC3339),
+					"updated_at":     now.Format(time.RFC3339),
 				},
 				{
-					"address":       "wallet2",
-					"poll_interval": "1m",
+					"address":        "wallet2",
+					"network":        "mainnet",
+					"asset_type":     "sol",
+					"token_mint":     "",
+					"poll_interval":  "30s",
 					"last_poll_time": nil,
-					"status":        "active",
-					"created_at":    now.Format(time.RFC3339),
-					"updated_at":    now.Format(time.RFC3339),
+					"status":         "active",
+					"created_at":      now.Format(time.RFC3339),
+					"updated_at":     now.Format(time.RFC3339),
 				},
 			},
 		}
@@ -507,19 +509,22 @@ func TestWalletGetCommand(t *testing.T) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		if r.URL.Path != "/api/v1/wallets/test-wallet" {
+		if r.URL.Path != "/api/v1/wallet-assets/test-wallet" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 
 		wallet := map[string]interface{}{
-			"address":       "test-wallet",
-			"poll_interval": "45s",
+			"address":        "test-wallet",
+			"network":        "mainnet",
+			"asset_type":     "sol",
+			"token_mint":     "",
+			"poll_interval":  "30s",
 			"last_poll_time": lastPoll.Format(time.RFC3339),
-			"status":        "active",
-			"created_at":    now.Format(time.RFC3339),
-			"updated_at":    now.Format(time.RFC3339),
+			"status":         "active",
+			"created_at":     now.Format(time.RFC3339),
+			"updated_at":     now.Format(time.RFC3339),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -538,7 +543,7 @@ func TestWalletGetCommand(t *testing.T) {
 	}
 
 	err := app.Run([]string{"test", "wallet", "get", "--server", server.URL, "test-wallet"})
-	
+
 	w.Close()
 	os.Stdout = oldStdout
 
@@ -552,9 +557,6 @@ func TestWalletGetCommand(t *testing.T) {
 
 	if !bytes.Contains([]byte(output), []byte("test-wallet")) {
 		t.Errorf("expected test-wallet in output, got: %s", output)
-	}
-	if !bytes.Contains([]byte(output), []byte("45s")) {
-		t.Errorf("expected 45s poll interval in output, got: %s", output)
 	}
 	if !bytes.Contains([]byte(output), []byte("active")) {
 		t.Errorf("expected active status in output, got: %s", output)

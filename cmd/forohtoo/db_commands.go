@@ -55,16 +55,15 @@ func listWalletsCommand() *cli.Command {
 
 			// Pretty table output
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ADDRESS\tSTATUS\tPOLL INTERVAL\tLAST POLL\tCREATED")
+			fmt.Fprintln(w, "ADDRESS\tSTATUS\tLAST POLL\tCREATED")
 			for _, wallet := range wallets {
 				lastPoll := "never"
 				if wallet.LastPollTime != nil {
 					lastPoll = wallet.LastPollTime.Format(time.RFC3339)
 				}
-				fmt.Fprintf(w, "%s\t%s\t%v\t%s\t%s\n",
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 					wallet.Address,
 					wallet.Status,
-					wallet.PollInterval,
 					lastPoll,
 					wallet.CreatedAt.Format(time.RFC3339),
 				)
@@ -134,7 +133,6 @@ func getWalletCommand() *cli.Command {
 			fmt.Printf("Address:       %s\n", wallet.Address)
 			fmt.Printf("Network:       %s\n", wallet.Network)
 			fmt.Printf("Status:        %s\n", wallet.Status)
-			fmt.Printf("Poll Interval: %v\n", wallet.PollInterval)
 			if wallet.LastPollTime != nil {
 				fmt.Printf("Last Poll:     %s\n", wallet.LastPollTime.Format(time.RFC3339))
 			} else {
