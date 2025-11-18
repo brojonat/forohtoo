@@ -65,16 +65,16 @@ def extract_from_address_from_transaction(rpc_client: SolanaClient, signature: s
     Fetch a transaction from Solana RPC and extract the from_address.
     """
     try:
-        # Fetch transaction
+        # Fetch transaction with base64 encoding to get raw instruction data
         sig = Signature.from_string(signature)
         result = rpc_client.get_transaction(
             sig,
-            encoding="jsonParsed",
+            encoding="base64",
             max_supported_transaction_version=0
         )
 
         if not result.value:
-            print(f"  ⚠️  Transaction not found on RPC: {signature[:20]}...")
+            print(f"  ⚠️  Transaction not found on RPC (may be pruned): {signature[:20]}...")
             return None
 
         # Parse transaction
@@ -93,24 +93,37 @@ def extract_from_address_from_transaction(rpc_client: SolanaClient, signature: s
         # Look through instructions for token transfers
         for instruction in message.instructions:
             try:
+                # Check if this is a ParsedInstruction (Solana RPC sometimes returns these for token programs)
+                if hasattr(instruction, 'parsed'):
+                    # This is a parsed instruction - extract from_address from parsed data
+                    parsed = instruction.parsed
+                    if isinstance(parsed, dict):
+                        # For token transfer instructions, the authority is in the "info" section
+                        info = parsed.get('info', {})
+                        # Try different possible keys for the authority/signer
+                        authority = info.get('authority') or info.get('owner') or info.get('multisigAuthority')
+                        if authority:
+                            return authority
+                    continue
+
+                # This is a raw instruction
                 program_id_index = instruction.program_id_index
                 program_id = str(account_keys[program_id_index])
 
                 # Check if this is a token program instruction
                 if program_id in [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]:
                     # Get instruction data and accounts
-                    if hasattr(instruction, 'data'):
-                        instruction_data = bytes(instruction.data)
-                        instruction_accounts = instruction.accounts if hasattr(instruction, 'accounts') else []
+                    instruction_data = bytes(instruction.data)
+                    instruction_accounts = instruction.accounts
 
-                        from_addr = parse_token_transfer_authority(
-                            instruction_data,
-                            account_keys,
-                            instruction_accounts
-                        )
+                    from_addr = parse_token_transfer_authority(
+                        instruction_data,
+                        account_keys,
+                        instruction_accounts
+                    )
 
-                        if from_addr:
-                            return from_addr
+                    if from_addr:
+                        return from_addr
             except Exception as e:
                 print(f"  ⚠️  Error parsing instruction: {e}")
                 continue
