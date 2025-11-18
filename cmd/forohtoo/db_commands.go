@@ -210,6 +210,7 @@ func listTransactionsCommand() *cli.Command {
 				// Filter by wallet only
 				params := db.ListTransactionsByWalletParams{
 					WalletAddress: walletAddr,
+					Network:       network,
 					Limit:         int32(c.Int("limit")),
 					Offset:        0,
 				}
