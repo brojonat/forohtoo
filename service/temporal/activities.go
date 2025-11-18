@@ -265,11 +265,18 @@ func (a *Activities) GetExistingTransactionSignatures(ctx context.Context, input
 
 	a.logger.DebugContext(ctx, "fetching existing transaction signatures",
 		"wallet_address", input.WalletAddress,
+		"network", input.Network,
 		"since", input.Since,
 	)
 
 	// Limit to 1000 most recent signatures to prevent unbounded growth
 	const maxSignatures = 1000
+	a.logger.DebugContext(ctx, "calling GetTransactionSignaturesByWallet",
+		"wallet_address", input.WalletAddress,
+		"network", input.Network,
+		"since", input.Since,
+		"limit", maxSignatures,
+	)
 	signatures, err := a.store.GetTransactionSignaturesByWallet(ctx, input.WalletAddress, input.Network, input.Since, maxSignatures)
 	if err != nil {
 		a.logger.ErrorContext(ctx, "failed to get existing transaction signatures",
@@ -283,9 +290,21 @@ func (a *Activities) GetExistingTransactionSignatures(ctx context.Context, input
 		Signatures: signatures,
 	}
 
+	// Log first few signatures for debugging
+	sampleSigs := make([]string, 0, min(3, len(signatures)))
+	for i := 0; i < min(3, len(signatures)); i++ {
+		if len(signatures[i]) > 20 {
+			sampleSigs = append(sampleSigs, signatures[i][:20]+"...")
+		} else {
+			sampleSigs = append(sampleSigs, signatures[i])
+		}
+	}
+
 	a.logger.InfoContext(ctx, "fetched existing transaction signatures successfully",
 		"wallet_address", input.WalletAddress,
+		"network", input.Network,
 		"count", len(signatures),
+		"sample_signatures", sampleSigs,
 	)
 
 	return result, nil
