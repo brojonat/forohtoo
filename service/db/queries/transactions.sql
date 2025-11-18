@@ -73,3 +73,16 @@ SELECT * FROM transactions
 WHERE block_time >= @start_time::timestamptz
   AND block_time <= @end_time::timestamptz
 ORDER BY block_time ASC;
+
+-- name: ListTransactionsWithNullFromAddress :many
+SELECT * FROM transactions
+WHERE from_address IS NULL
+  AND network = @network
+ORDER BY block_time DESC
+LIMIT @limit_count;
+
+-- name: UpdateTransactionFromAddress :exec
+UPDATE transactions
+SET from_address = $1
+WHERE signature = $2
+  AND network = $3;
