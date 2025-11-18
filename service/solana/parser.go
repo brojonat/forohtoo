@@ -184,11 +184,20 @@ func parseTokenTransferWithSource(instruction solana.CompiledInstruction, accoun
 		}
 		amount = binary.LittleEndian.Uint64(instruction.Data[1:9])
 
-		// Account layout for Transfer: [source, destination, authority]
-		// Note: source is the token account, not the wallet owner
-		// We'd need to look up the token account to find the owner
-		// For now, return nil for from_address in this case
-		return amount, solana.PublicKey{}, nil, nil
+		// Account layout for Transfer: [source_token_account, destination_token_account, authority]
+		// The authority (index 2) is the wallet that owns/signs for the source token account
+		if len(instruction.Accounts) >= 3 {
+			authorityIndex := instruction.Accounts[2]
+			if int(authorityIndex) < len(accountKeys) {
+				addr := accountKeys[authorityIndex]
+				fromAddr = &addr
+			}
+		}
+
+		// Note: Transfer instruction doesn't include the mint address in the instruction
+		// We'd need to look up the token account to find the mint
+		// Return empty mint for now
+		return amount, solana.PublicKey{}, fromAddr, nil
 
 	case TokenProgramTransferCheckedInstruction:
 		// TransferChecked instruction format:
