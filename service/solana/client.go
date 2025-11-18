@@ -75,6 +75,14 @@ func (c *Client) GetTransactionsSince(
 		opts.Until = *params.LastSignature
 	}
 
+	// Log RPC call parameters for debugging
+	c.logger.DebugContext(ctx, "calling GetSignaturesForAddress",
+		"wallet", params.Wallet.String(),
+		"limit", params.Limit,
+		"until", params.LastSignature,
+		"existing_sigs_count", len(params.ExistingSignatures),
+	)
+
 	// Fetch signatures from RPC
 	start := time.Now()
 	signatures, err := c.rpc.GetSignaturesForAddress(ctx, params.Wallet, opts)
@@ -104,6 +112,24 @@ func (c *Client) GetTransactionsSince(
 		"wallet", params.Wallet.String(),
 		"count", len(signatures),
 	)
+
+	// Log first few signatures for debugging
+	if len(signatures) > 0 {
+		firstSigs := make([]string, 0, min(3, len(signatures)))
+		for i := 0; i < min(3, len(signatures)); i++ {
+			firstSigs = append(firstSigs, signatures[i].Signature.String()[:20]+"...")
+		}
+		c.logger.DebugContext(ctx, "RPC returned signatures",
+			"first_signatures", firstSigs,
+			"total_count", len(signatures),
+		)
+	} else {
+		c.logger.DebugContext(ctx, "RPC returned ZERO signatures - investigating",
+			"wallet", params.Wallet.String(),
+			"limit", params.Limit,
+			"until", params.LastSignature,
+		)
+	}
 
 	// Create a lookup map for existing signatures to avoid reprocessing.
 	existingSigs := make(map[string]struct{})
