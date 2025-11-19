@@ -119,6 +119,10 @@ func parseTransactionFromResult(sig *rpc.TransactionSignature, result *rpc.GetTr
 					fromStr := fromAddr.String()
 					txn.FromAddress = &fromStr
 				}
+			} else {
+				// Log parsing error - return it so it can be logged by caller
+				return nil, fmt.Errorf("failed to parse token transfer (sig=%s, instruction_type=%d, accounts=%v): %w",
+					txn.Signature, instruction.Data[0], instruction.Accounts, err)
 			}
 		}
 
