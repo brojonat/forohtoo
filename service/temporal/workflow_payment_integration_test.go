@@ -6,14 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brojonat/forohtoo/client"
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/client"
-	"log/slog"
 )
 
 // TestPaymentGatedRegistrationWorkflow_Integration tests the full payment-gated registration flow.

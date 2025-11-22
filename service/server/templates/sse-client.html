@@ -455,10 +455,6 @@
 
         // Add brush for time range selection (integrated into the main timeline)
         if (usdcData.length > 0) {
-          // Get full time extent from all data
-          const fullTimeExtent = d3.extent(usdcData, (d) => new Date(d.block_time || d.published_at));
-          const fullXScale = d3.scaleTime().domain(fullTimeExtent).range([0, innerWidth]);
-
           // Create or update brush
           if (!brush) {
             brush = d3.brushX()
@@ -475,8 +471,8 @@
             if (!event.sourceEvent) return; // Ignore programmatic brush updates
 
             if (selection) {
-              // User selected a range
-              currentTimeRange = selection.map(fullXScale.invert);
+              // User selected a range - use the current x scale for inversion
+              currentTimeRange = selection.map(x.invert);
               // Clear the brush selection visually after capturing the range
               brushLayer.call(brush.move, null);
               renderTimeline(timelineData);
