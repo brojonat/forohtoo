@@ -157,37 +157,21 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 				historical = filtered
 			}
 
-			// Limit to 1000 events maximum
-			const maxHistoricalEvents = 1000
-			if len(historical) > maxHistoricalEvents {
-				historical = historical[:maxHistoricalEvents]
-			}
+		// Limit to 1000 events maximum
+		const maxHistoricalEvents = 1000
+		if len(historical) > maxHistoricalEvents {
+			historical = historical[:maxHistoricalEvents]
+		}
 
-			// Send in chunks of 200 to avoid huge payloads
-			const chunkSize = 200
-			for i := 0; i < len(historical); i += chunkSize {
-				j := i + chunkSize
-				if j > len(historical) {
-					j = len(historical)
-				}
-				batch := historical[i:j]
-
-				// Convert to events
-				events := make([]*natspkg.TransactionEvent, 0, len(batch))
-				for _, t := range batch {
-					events = append(events, natspkg.FromDBTransaction(t))
-				}
-				payload, _ := json.Marshal(map[string]any{
-					"start":  start,
-					"end":    end,
-					"count":  len(events),
-					"events": events,
-				})
-				fmt.Fprintf(w, "event: transactions_chunk\ndata: %s\n\n", string(payload))
-				if flusher, ok := w.(http.Flusher); ok {
-					flusher.Flush()
-				}
+		// Send each historical transaction as individual transaction events
+		for _, t := range historical {
+			event := natspkg.FromDBTransaction(t)
+			payload, _ := json.Marshal(event)
+			fmt.Fprintf(w, "event: transaction\ndata: %s\n\n", string(payload))
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
 			}
+		}
 		}
 
 		// 3) Switch to live streaming via NATS

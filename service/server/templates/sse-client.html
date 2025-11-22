@@ -608,7 +608,7 @@
                       txn.token_type
                     )}</div>
                     <div style="font-size: 12px; color: #999;">${formatDate(
-                      txn.published_at
+                      txn.block_time
                     )}</div>
                 </div>
                 <div class="signature">Signature: ${txn.signature}</div>
@@ -653,8 +653,7 @@
         };
 
         const connected$ = fromSSE(es, "connected");
-        const chunks$ = fromSSE(es, "transactions_chunk");
-        const live$ = fromSSE(es, "transaction");
+        const transactions$ = fromSSE(es, "transaction");
 
         // Handle connected event (UI only)
         subscriptions.push(
@@ -663,42 +662,16 @@
           })
         );
 
-        // Historical chunks: apply in batches, single render per chunk
+        // All transaction events: both historical (from lookback) and live
         subscriptions.push(
-          chunks$.subscribe((payload) => {
-            const events = Array.isArray(payload.events) ? payload.events : [];
-            let added = 0;
-            for (const ev of events) {
-              if (knownSignatures.has(ev.signature)) continue;
-              // Filter out transactions without a from_address
-              if (!ev.from_address) continue;
-              knownSignatures.add(ev.signature);
-              timelineData.push(ev);
-              addTransaction(ev);
-              added++;
-            }
-            if (added > 0) {
-              // Sort by time once per chunk
-              timelineData.sort(
-                (a, b) =>
-                  new Date(a.block_time || a.published_at) -
-                  new Date(b.block_time || b.published_at)
-              );
-              renderTimeline(timelineData);
-            }
-          })
-        );
-
-        // Live events: incremental updates
-        subscriptions.push(
-          live$.subscribe((ev) => {
+          transactions$.subscribe((ev) => {
             if (knownSignatures.has(ev.signature)) return;
             // Filter out transactions without a from_address
             if (!ev.from_address) return;
             knownSignatures.add(ev.signature);
             timelineData.push(ev);
             addTransaction(ev);
-            // Keep sorted; since live usually appends newer, do a cheap check
+            // Keep sorted; check if we need to re-sort
             const n = timelineData.length;
             if (n >= 2) {
               const prev = timelineData[n - 2];

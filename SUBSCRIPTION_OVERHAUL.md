@@ -10,8 +10,8 @@
 ## High-level Flow
 
 1. Client connects to SSE endpoint `/api/v1/stream/transactions[/{address}]`.
-2. Server fetches historical transactions from the DB for a fixed window (currently last 24h), optionally filter by wallet.
-3. Server streams historical transactions in `transactions_chunk` events with arrays of events, ascending by time.
+2. Server fetches historical transactions from the DB for a fixed window (specified by optional `lookback` parameter), optionally filter by wallet.
+3. Server streams historical transactions as individual `transaction` events, ascending by time.
 4. Server then switches to live streaming by consuming NATS JetStream (subject `txns.*` or `txns.{address}`) and emits `transaction` events one-by-one.
 5. Client merges both streams into a single timeline, deduping by signature.
 
@@ -28,9 +28,7 @@ Future (not implemented yet):
 
 - `connected`: initial handshake
   - `{ wallet: string }`
-- `transactions_chunk`: historical data batch
-  - `{ start: string, end: string, count: number, events: TransactionEvent[] }`
-- `transaction`: single live event
+- `transaction`: single transaction event (both historical and live)
   - `TransactionEvent`
 
 ## TransactionEvent Schema (subset)
@@ -56,18 +54,17 @@ Future (not implemented yet):
 - SQL: `ListTransactionsByTimeRange` (global), ordered ASC by `block_time`.
 - Store: `ListTransactionsByTimeRange(ctx, start, end)`.
 - SSE handler:
-  - On connect: compute `[start,end]` (currently last 24h).
+  - On connect: parse optional `lookback` duration parameter.
   - Fetch from DB, filter by address if provided.
-  - Stream in chunks of 200 as `transactions_chunk`.
+  - Stream each historical transaction individually as `transaction` events.
   - Create NATS consumer with `DeliverNewPolicy` and forward live `transaction` events.
 
 ## Client Design (RxJS + D3) — to be implemented
 
 - RxJS
   - `connected$`: handshake events
-  - `chunks$`: `transactions_chunk`
-  - `live$`: `transaction`
-  - `timeline$ = merge(chunks$, live$).pipe(scan(dedupBySignature), shareReplay(1))`
+  - `transactions$`: all `transaction` events (both historical and live)
+  - `timeline$ = transactions$.pipe(scan(dedupBySignature), shareReplay(1))`
   - Dedup keys: `signature`; Order by `block_time` (fallback `published_at`).
   - Reconnection handling with exponential backoff; resume dedup from cache.
 - D3 Timeline

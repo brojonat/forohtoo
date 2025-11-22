@@ -513,6 +513,7 @@ func TestClient_Await_LookbackFindsTransaction(t *testing.T) {
 		require.True(t, ok)
 
 		// Send historical transaction (from 12h ago, within 24h lookback)
+		// Send as individual transaction event
 		historicalTx := Transaction{
 			Signature: "historical-payment-sig",
 			BlockTime: time.Now().Add(-12 * time.Hour),
@@ -521,7 +522,7 @@ func TestClient_Await_LookbackFindsTransaction(t *testing.T) {
 		}
 
 		data, _ := json.Marshal(historicalTx)
-		w.Write([]byte("data: " + string(data) + "\n\n"))
+		w.Write([]byte("event: transaction\ndata: " + string(data) + "\n\n"))
 		flusher.Flush()
 	}))
 	defer server.Close()
