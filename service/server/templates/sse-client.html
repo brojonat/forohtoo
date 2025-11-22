@@ -455,17 +455,9 @@
 
         // Add brush for time range selection (integrated into the main timeline)
         if (usdcData.length > 0) {
-          // Create or update brush
-          if (!brush) {
-            brush = d3.brushX()
-              .extent([[0, 0], [innerWidth, innerHeight]])
-              .on("end", brushed);
-          }
-
           const brushLayer = gRoot.select("g.brush-layer");
-          brushLayer.selectAll("*").remove();
-          brushLayer.call(brush);
 
+          // Define the brush handler (must be defined before use)
           function brushed(event) {
             const selection = event.selection;
             if (!event.sourceEvent) return; // Ignore programmatic brush updates
@@ -482,6 +474,21 @@
               renderTimeline(timelineData);
             }
           }
+
+          // Create or update brush
+          if (!brush) {
+            brush = d3.brushX()
+              .extent([[0, 0], [innerWidth, innerHeight]]);
+          } else {
+            // Update extent in case chart size changed
+            brush.extent([[0, 0], [innerWidth, innerHeight]]);
+          }
+
+          // Always update the brush handler to use the current x scale
+          brush.on("end", brushed);
+
+          brushLayer.selectAll("*").remove();
+          brushLayer.call(brush);
         }
 
         updateTimeRangeLabel();
