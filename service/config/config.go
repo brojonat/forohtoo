@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -21,12 +22,12 @@ type Config struct {
 	// NATS configuration
 	NATSURL string
 
-	// Solana configuration - Mainnet
-	SolanaMainnetRPCURL string
+	// Solana configuration - Mainnet (multiple endpoints for load distribution)
+	SolanaMainnetRPCURLs []string
 	USDCMainnetMintAddress string
 
-	// Solana configuration - Devnet
-	SolanaDevnetRPCURL string
+	// Solana configuration - Devnet (multiple endpoints for load distribution)
+	SolanaDevnetRPCURLs []string
 	USDCDevnetMintAddress string
 
 	// Temporal configuration
@@ -74,9 +75,13 @@ func Load() (*Config, error) {
 	cfg.NATSURL = getEnvOrDefault("NATS_URL", "nats://localhost:4222")
 
 	// Solana Mainnet configuration
-	cfg.SolanaMainnetRPCURL = os.Getenv("SOLANA_MAINNET_RPC_URL")
-	if cfg.SolanaMainnetRPCURL == "" {
-		errs = append(errs, fmt.Errorf("SOLANA_MAINNET_RPC_URL is required"))
+	mainnetURLsStr := os.Getenv("SOLANA_MAINNET_RPC_URLS")
+	if mainnetURLsStr == "" {
+		errs = append(errs, fmt.Errorf("SOLANA_MAINNET_RPC_URLS is required"))
+	}
+	cfg.SolanaMainnetRPCURLs = parseEndpoints(mainnetURLsStr)
+	if len(cfg.SolanaMainnetRPCURLs) == 0 {
+		errs = append(errs, fmt.Errorf("SOLANA_MAINNET_RPC_URLS must contain at least one valid endpoint"))
 	}
 
 	cfg.USDCMainnetMintAddress = os.Getenv("USDC_MAINNET_MINT_ADDRESS")
@@ -85,19 +90,18 @@ func Load() (*Config, error) {
 	}
 
 	// Solana Devnet configuration
-	cfg.SolanaDevnetRPCURL = os.Getenv("SOLANA_DEVNET_RPC_URL")
-	if cfg.SolanaDevnetRPCURL == "" {
-		errs = append(errs, fmt.Errorf("SOLANA_DEVNET_RPC_URL is required"))
+	devnetURLsStr := os.Getenv("SOLANA_DEVNET_RPC_URLS")
+	if devnetURLsStr == "" {
+		errs = append(errs, fmt.Errorf("SOLANA_DEVNET_RPC_URLS is required"))
+	}
+	cfg.SolanaDevnetRPCURLs = parseEndpoints(devnetURLsStr)
+	if len(cfg.SolanaDevnetRPCURLs) == 0 {
+		errs = append(errs, fmt.Errorf("SOLANA_DEVNET_RPC_URLS must contain at least one valid endpoint"))
 	}
 
 	cfg.USDCDevnetMintAddress = os.Getenv("USDC_DEVNET_MINT_ADDRESS")
 	if cfg.USDCDevnetMintAddress == "" {
 		errs = append(errs, fmt.Errorf("USDC_DEVNET_MINT_ADDRESS is required"))
-	}
-
-	// Validate RPC URLs are different
-	if cfg.SolanaMainnetRPCURL == cfg.SolanaDevnetRPCURL {
-		errs = append(errs, fmt.Errorf("SOLANA_MAINNET_RPC_URL and SOLANA_DEVNET_RPC_URL must be different"))
 	}
 
 	// Validate USDC mint addresses are different
@@ -164,12 +168,12 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf("DatabaseURL is required"))
 	}
 
-	if c.SolanaMainnetRPCURL == "" {
-		errs = append(errs, fmt.Errorf("SolanaMainnetRPCURL is required"))
+	if len(c.SolanaMainnetRPCURLs) == 0 {
+		errs = append(errs, fmt.Errorf("SolanaMainnetRPCURLs must contain at least one endpoint"))
 	}
 
-	if c.SolanaDevnetRPCURL == "" {
-		errs = append(errs, fmt.Errorf("SolanaDevnetRPCURL is required"))
+	if len(c.SolanaDevnetRPCURLs) == 0 {
+		errs = append(errs, fmt.Errorf("SolanaDevnetRPCURLs must contain at least one endpoint"))
 	}
 
 	if c.USDCMainnetMintAddress == "" {
@@ -236,6 +240,20 @@ func parseInt(key string, defaultValue int) (int, error) {
 		return 0, fmt.Errorf("%s: invalid integer %q: %w", key, value, err)
 	}
 	return result, nil
+}
+
+// parseEndpoints splits a comma-separated string of RPC endpoints and trims whitespace.
+// Empty strings after trimming are filtered out.
+func parseEndpoints(endpointsStr string) []string {
+	raw := strings.Split(endpointsStr, ",")
+	endpoints := make([]string, 0, len(raw))
+	for _, ep := range raw {
+		trimmed := strings.TrimSpace(ep)
+		if trimmed != "" {
+			endpoints = append(endpoints, trimmed)
+		}
+	}
+	return endpoints
 }
 
 // GetSupportedMints returns the list of supported SPL token mint addresses for a given network.
