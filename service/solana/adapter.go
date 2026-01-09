@@ -2,6 +2,8 @@ package solana
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
 	"net/http"
 	"time"
 
@@ -9,6 +11,16 @@ import (
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
 )
+
+// SelectRandomEndpoint picks a random endpoint from the pool.
+// Returns error if endpoints slice is empty.
+// Uses Go 1.20+ automatic random seeding - no manual seeding needed.
+func SelectRandomEndpoint(endpoints []string) (string, error) {
+	if len(endpoints) == 0 {
+		return "", fmt.Errorf("no RPC endpoints configured")
+	}
+	return endpoints[rand.Intn(len(endpoints))], nil
+}
 
 // realRPCClient adapts the actual solana-go RPC client to our RPCClient interface.
 // This adapter allows us to control the interface and makes testing easier.

@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Same wallet address can be monitored on multiple networks
 - CLI `--network` flag added to all wallet commands (defaults to "mainnet" for backward compatibility)
 - Network-aware Temporal workflow scheduling with separate schedules per network
+- **Multi-endpoint RPC support**: Workers now distribute load across multiple Solana RPC providers
+  - Random endpoint selection at worker startup for improved load distribution
+  - Mix free public endpoints with paid services to reduce costs (up to ~75% savings with 4 endpoints: 1 paid + 3 free)
+  - Improved resilience against rate limits and provider downtime
+  - Configurable via comma-separated endpoint lists in environment variables
+  - No vendor lock-in - easy to add/remove providers without code changes
+  - Workers log selected endpoint at startup for monitoring and debugging
+  - Separate endpoint pools for mainnet and devnet
 
 ### Changed
 - **BREAKING**: Service-managed polling intervals - clients can no longer control poll intervals
@@ -43,6 +51,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Example: `/api/v1/stream/transactions/{address}?network=mainnet&lookback=24h`
 - **BREAKING**: Configuration now requires both `SOLANA_MAINNET_RPC_URL` and `SOLANA_DEVNET_RPC_URL` (replaces `SOLANA_RPC_URL`)
 - **BREAKING**: Configuration now requires both `USDC_MAINNET_MINT_ADDRESS` and `USDC_DEVNET_MINT_ADDRESS`
+- **BREAKING**: RPC endpoint environment variable format changed to support multiple endpoints:
+  - Old: `SOLANA_MAINNET_RPC_URL=https://api.mainnet-beta.solana.com`
+  - New: `SOLANA_MAINNET_RPC_URLS=https://api.mainnet-beta.solana.com,https://other.endpoint.com,...`
+  - Same change for `SOLANA_DEVNET_RPC_URL` → `SOLANA_DEVNET_RPC_URLS`
+  - Single endpoint still works (just provide one URL in the comma-separated list)
+  - Whitespace around URLs is automatically trimmed
+  - Workers randomly select one endpoint from the list at startup
 - **BREAKING**: API endpoints now require `network` parameter:
   - `POST /api/v1/wallets` - network in JSON body (no longer accepts poll_interval)
   - `GET /api/v1/wallets/{address}?network={network}` - network as query parameter
@@ -55,8 +70,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration Guide
 - Update environment variables:
-  - Rename `SOLANA_RPC_URL` to `SOLANA_MAINNET_RPC_URL`
-  - Add `SOLANA_DEVNET_RPC_URL`
+  - Rename `SOLANA_RPC_URL` to `SOLANA_MAINNET_RPC_URLS` (note the plural)
+  - Add `SOLANA_DEVNET_RPC_URLS` (note the plural)
+  - For multi-endpoint support, use comma-separated lists:
+    - Example: `SOLANA_MAINNET_RPC_URLS=https://api.mainnet-beta.solana.com,https://mainnet.helius-rpc.com/?api-key=YOUR_KEY,https://rpc.ankr.com/solana`
+    - Single endpoint still works: `SOLANA_MAINNET_RPC_URLS=https://api.mainnet-beta.solana.com`
   - Add `USDC_MAINNET_MINT_ADDRESS=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`
   - Add `USDC_DEVNET_MINT_ADDRESS=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`
   - Optionally set `DEFAULT_POLL_INTERVAL` (default: 30s, e.g., `DEFAULT_POLL_INTERVAL=1m`)
