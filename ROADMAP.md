@@ -4,78 +4,7 @@ This document tracks planned improvements, features, and technical debt for the 
 
 ## High Priority
 
-### 1. Fix 429 Rate Limit Transaction Handling
-
-**Status**: 🔴 Investigation needed
-
-**Problem**: When we encounter 429 rate limit errors while fetching transaction details, we may be storing transactions with incorrect `amount=0.0` values. This is worse than not storing the transaction at all, because:
-- Users see incorrect $0.00 amounts in their transaction history
-- The transaction is marked as "processed" so we won't retry fetching it on subsequent polls
-- No way to distinguish between actual $0 transactions and failed parses
-
-**Desired behavior**: If we can't parse transaction details due to rate limits:
-- DO NOT store the transaction in the database
-- Allow the transaction to be redetected on the next poll cycle
-- Once rate limits clear, process it normally with correct amount
-
-**Root cause identified**:
-- ✅ Location: `service/solana/client.go:256-268` and `client.go:272-286`
-- ✅ When `GetTransaction()` fails (429 or other error), code falls back to `signatureToDomain(sig)`
-- ✅ `signatureToDomain()` creates metadata-only transaction with `Amount = 0` (uint64 default)
-- ✅ Comment in code: "Note: Amount, TokenMint, and Memo are not available in the signature list"
-- ✅ These zero-amount transactions are then stored in database
-- ✅ Affects both SOL and SPL token transfers
-
-**Investigation tasks**:
-- [x] Review current transaction parsing logic in `service/solana/client.go`
-- [x] Identify where 429 errors occur during transaction processing
-- [x] Trace code path from signature detection → detail fetching → database storage
-- [x] Check if we have error handling that defaults to 0.0 amounts
-- [ ] Review production logs for patterns of 0 amount transactions correlated with 429 errors
-- [ ] Query database for count of transactions with amount=0 vs non-zero
-- [ ] Correlate zero-amount transactions with worker logs showing 429 errors
-
-**Proposed solution options**:
-
-**Option A: Skip transactions with failed detail fetch** (Recommended)
-- Modify `client.go:256-268` to NOT append transaction when `GetTransaction()` fails
-- Remove the fallback to `signatureToDomain()` for detail fetch failures
-- Transaction remains unprocessed and will be redetected on next poll
-- Add counter metric: `transactions_skipped_detail_fetch_failed`
-- Log at DEBUG level (not WARN) since this is expected retry behavior
-
-**Option B: Mark transactions as "pending parse"**
-- Add a `parse_status` field to transactions table (`parsed`, `pending`, `failed`)
-- Store metadata-only transaction with `parse_status=pending` and `amount=NULL`
-- Background job or next poll retries parsing pending transactions
-- More complex but provides transaction history continuity
-
-**Option C: Exponential backoff retry in same poll cycle**
-- Retry detail fetch with exponential backoff (already doing this, but still failing)
-- If still failing after retries, use Option A (skip transaction)
-
-**Recommended approach**: Option A - simplest, safest, and aligns with polling model
-- Signatures don't disappear - they'll be fetched again on next poll
-- Once rate limits clear, transaction processes normally with correct amount
-- No risk of storing incorrect data
-- Minimal code changes
-
-**Implementation files**:
-- `service/solana/client.go:256-268` - GetTransaction failure handling
-- `service/solana/client.go:272-286` - Parse transaction failure handling
-- `service/solana/parser.go:45-65` - `signatureToDomain()` function (creates 0-amount txns)
-- `service/solana/types.go:14` - `Amount uint64` field (defaults to 0)
-
-**References**:
-- Production logs show ongoing 429 errors (see worker logs: "failed to get transaction details after retries")
-- User feedback indicates $0 amounts appearing in transaction history
-- Related to multi-endpoint RPC work (partially mitigated by load distribution)
-
-**Priority justification**: This directly affects data accuracy and user trust. Incorrect amounts are worse than missing transactions.
-
----
-
-### 2. Fix Broken Test Suite
+### 1. Fix Broken Test Suite
 
 **Status**: 🔴 Blocking CI
 
@@ -234,9 +163,21 @@ This document tracks planned improvements, features, and technical debt for the 
 
 ## Completed ✅
 
+### Fix 429 Rate Limit Transaction Handling
+**Completed**: 2026-01-12
+**Commit**: `d4723e5`
+
+Fixed critical bug where transactions that failed to fetch details (due to 429 rate limits or other errors) were stored in the database with incorrect `amount=0` values. Now these transactions are skipped and will be redetected on the next poll cycle, ensuring only complete and accurate transactions are stored.
+
+**Implementation**: Removed fallback to `signatureToDomain()` for failed transactions. Added metrics tracking (`RecordTransactionsSkipped`) and enhanced logging to show signatures_received vs transactions_processed.
+
+**Impact**: No more incorrect $0.00 amounts in user transaction history. Transactions retry naturally on next poll (~30s).
+
+---
+
 ### Multi-Endpoint RPC Support
 **Completed**: 2025-12-30 (deployed)
-**Merged**: Pending (feature branch ready)
+**Merged**: 2026-01-12 (PR #3, commit `b452b2d`)
 
 Workers now distribute load across multiple Solana RPC endpoints, reducing costs by ~75% and improving resilience against rate limits.
 
