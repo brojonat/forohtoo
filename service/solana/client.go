@@ -254,35 +254,33 @@ func (c *Client) GetTransactionsSince(
 		}
 
 		if err != nil {
-			// Log warning but continue with other transactions
-			// Transaction might be pruned or not available after retries
-			c.logger.WarnContext(ctx, "failed to get transaction details after retries, using metadata only",
+			// Skip this transaction - it will be redetected on next poll
+			// when rate limits clear or the transaction becomes available
+			c.logger.DebugContext(ctx, "skipping transaction due to detail fetch failure, will retry on next poll",
 				"signature", sig.Signature.String(),
 				"error", err,
 			)
-			// Fall back to metadata-only transaction
-			txn := signatureToDomain(sig)
-			txn.Network = params.Network
-			transactions = append(transactions, txn)
+			// Record skipped transaction
+			if c.metrics != nil {
+				c.metrics.RecordTransactionsSkipped(params.Wallet.String(), "detail_fetch_failed", 1)
+			}
 			continue
 		}
 
 		// Parse transaction to extract amount, token mint, and memo
 		txn, err := parseTransactionFromResult(sig, result)
 		if err != nil {
-			// Log warning but continue with other transactions
-			c.logger.WarnContext(ctx, "failed to parse transaction, using metadata only",
+			// Skip this transaction - it will be redetected on next poll
+			// This ensures we don't store transactions with incorrect data
+			c.logger.DebugContext(ctx, "skipping transaction due to parse failure, will retry on next poll",
 				"signature", sig.Signature.String(),
 				"error", err,
 			)
-			// Record parse failure
+			// Record parse failure and skip
 			if c.metrics != nil {
 				c.metrics.RecordTransactionParsed(params.Wallet.String(), "error")
+				c.metrics.RecordTransactionsSkipped(params.Wallet.String(), "parse_failed", 1)
 			}
-			// Fall back to metadata-only transaction
-			fallbackTxn := signatureToDomain(sig)
-			fallbackTxn.Network = params.Network
-			transactions = append(transactions, fallbackTxn)
 			continue
 		}
 
@@ -299,7 +297,9 @@ func (c *Client) GetTransactionsSince(
 
 	c.logger.InfoContext(ctx, "fetched and parsed transactions",
 		"wallet", params.Wallet.String(),
-		"count", len(transactions),
+		"signatures_received", len(signatures),
+		"transactions_processed", len(transactions),
+		"skipped", len(signatures)-len(transactions),
 	)
 
 	return transactions, nil
