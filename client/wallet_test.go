@@ -242,7 +242,7 @@ func TestClient_Await_MatchingTransaction(t *testing.T) {
 	// Mock SSE server that sends matching transaction
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "GET", r.Method)
-		assert.Contains(t, r.URL.Path, "/api/v1/transactions")
+		assert.Contains(t, r.URL.Path, "/api/v1/stream/transactions")
 
 		// Set SSE headers
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -261,9 +261,12 @@ func TestClient_Await_MatchingTransaction(t *testing.T) {
 		}
 
 		data, _ := json.Marshal(transaction)
-		_, err := w.Write([]byte("data: " + string(data) + "\n\n"))
+		_, err := w.Write([]byte("event: transaction\ndata: " + string(data) + "\n\n"))
 		require.NoError(t, err)
 		flusher.Flush()
+
+		// Keep connection open until client closes it (after finding match)
+		<-r.Context().Done()
 	}))
 	defer server.Close()
 
@@ -321,7 +324,7 @@ func TestClient_Await_NonMatchingTransactions(t *testing.T) {
 			Memo:      stringPtr("forohtoo-reg:abc123"),
 		}
 		data1, _ := json.Marshal(tx1)
-		w.Write([]byte("data: " + string(data1) + "\n\n"))
+		w.Write([]byte("event: transaction\ndata: " + string(data1) + "\n\n"))
 		flusher.Flush()
 
 		time.Sleep(100 * time.Millisecond)
@@ -334,7 +337,7 @@ func TestClient_Await_NonMatchingTransactions(t *testing.T) {
 			Memo:      stringPtr("forohtoo-reg:xyz789"), // Wrong memo
 		}
 		data2, _ := json.Marshal(tx2)
-		w.Write([]byte("data: " + string(data2) + "\n\n"))
+		w.Write([]byte("event: transaction\ndata: " + string(data2) + "\n\n"))
 		flusher.Flush()
 
 		time.Sleep(100 * time.Millisecond)
@@ -347,7 +350,7 @@ func TestClient_Await_NonMatchingTransactions(t *testing.T) {
 			Memo:      nil, // No memo
 		}
 		data3, _ := json.Marshal(tx3)
-		w.Write([]byte("data: " + string(data3) + "\n\n"))
+		w.Write([]byte("event: transaction\ndata: " + string(data3) + "\n\n"))
 		flusher.Flush()
 
 		// Keep connection open until client times out
@@ -370,7 +373,7 @@ func TestClient_Await_NonMatchingTransactions(t *testing.T) {
 	// Should timeout because no matching transaction
 	require.Error(t, err)
 	assert.Nil(t, tx)
-	assert.Equal(t, context.DeadlineExceeded, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 
 	t.Logf("✓ Await correctly rejected non-matching transactions")
 }
@@ -417,7 +420,7 @@ func TestClient_Await_Timeout(t *testing.T) {
 	// Should timeout
 	require.Error(t, err)
 	assert.Nil(t, tx)
-	assert.Equal(t, context.DeadlineExceeded, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 
 	// Should timeout around 500ms (allow some tolerance)
 	assert.Greater(t, elapsed, 400*time.Millisecond)
@@ -473,7 +476,7 @@ func TestClient_Await_ContextCancelled(t *testing.T) {
 	// Should be cancelled
 	require.Error(t, err)
 	assert.Nil(t, tx)
-	assert.Equal(t, context.Canceled, err)
+	assert.ErrorIs(t, err, context.Canceled)
 
 	// Should cancel around 200ms
 	assert.Greater(t, elapsed, 150*time.Millisecond)
@@ -524,6 +527,9 @@ func TestClient_Await_LookbackFindsTransaction(t *testing.T) {
 		data, _ := json.Marshal(historicalTx)
 		w.Write([]byte("event: transaction\ndata: " + string(data) + "\n\n"))
 		flusher.Flush()
+
+		// Keep connection open until client closes it (after finding match)
+		<-r.Context().Done()
 	}))
 	defer server.Close()
 
