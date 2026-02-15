@@ -6,14 +6,14 @@ metadata:
     app: forohtoo-worker
   annotations:
     prometheus.io/scrape: "true"
-    prometheus.io/port: "9091"
+    prometheus.io/port: "9000"
     prometheus.io/path: "/metrics"
 spec:
   selector:
     app: forohtoo-worker
   ports:
   - name: metrics
-    port: 9091
-    targetPort: 9091
+    port: 9000
+    targetPort: 9000
     protocol: TCP
   type: ClusterIP
