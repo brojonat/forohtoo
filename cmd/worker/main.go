@@ -81,33 +81,15 @@ func main() {
 		}
 	}()
 
-	// Initialize Mainnet Solana RPC client
-	mainnetURL, err := solana.SelectRandomEndpoint(cfg.SolanaMainnetRPCURLs)
-	if err != nil {
-		logger.Error("failed to select mainnet RPC endpoint", "error", err)
-		os.Exit(1)
-	}
-	mainnetEndpoint := extractEndpointFromURL(mainnetURL)
-	mainnetRPC := solana.NewRPCClient(mainnetURL)
-	mainnetClient := solana.NewClient(mainnetRPC, mainnetEndpoint, metricsCollector, logger)
-	logger.Info("initialized mainnet solana RPC client",
-		"url", mainnetURL,
-		"endpoint", mainnetEndpoint,
+	// Initialize Mainnet Solana RPC client with multi-endpoint support
+	mainnetClient := solana.NewClient(cfg.SolanaMainnetRPCURLs, metricsCollector, logger)
+	logger.Info("initialized mainnet solana RPC client with multi-endpoint support",
 		"total_endpoints", len(cfg.SolanaMainnetRPCURLs),
 	)
 
-	// Initialize Devnet Solana RPC client
-	devnetURL, err := solana.SelectRandomEndpoint(cfg.SolanaDevnetRPCURLs)
-	if err != nil {
-		logger.Error("failed to select devnet RPC endpoint", "error", err)
-		os.Exit(1)
-	}
-	devnetEndpoint := extractEndpointFromURL(devnetURL)
-	devnetRPC := solana.NewRPCClient(devnetURL)
-	devnetClient := solana.NewClient(devnetRPC, devnetEndpoint, metricsCollector, logger)
-	logger.Info("initialized devnet solana RPC client",
-		"url", devnetURL,
-		"endpoint", devnetEndpoint,
+	// Initialize Devnet Solana RPC client with multi-endpoint support
+	devnetClient := solana.NewClient(cfg.SolanaDevnetRPCURLs, metricsCollector, logger)
+	logger.Info("initialized devnet solana RPC client with multi-endpoint support",
 		"total_endpoints", len(cfg.SolanaDevnetRPCURLs),
 	)
 
@@ -165,11 +147,7 @@ func main() {
 	}
 
 	logger.Info("temporal worker initialized, all dependencies ready",
-		"mainnet_rpc", mainnetURL,
-		"mainnet_endpoint", mainnetEndpoint,
 		"mainnet_total_endpoints", len(cfg.SolanaMainnetRPCURLs),
-		"devnet_rpc", devnetURL,
-		"devnet_endpoint", devnetEndpoint,
 		"devnet_total_endpoints", len(cfg.SolanaDevnetRPCURLs),
 		"temporal_host", cfg.TemporalHost,
 		"temporal_namespace", cfg.TemporalNamespace,

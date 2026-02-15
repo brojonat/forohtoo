@@ -19,6 +19,10 @@ spec:
           image: forohtoo:latest
           imagePullPolicy: Always
           command: ["/worker"]
+          ports:
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
           envFrom:
             - secretRef:
                 name: forohtoo-secret-worker-envs

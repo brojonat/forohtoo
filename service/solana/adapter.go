@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gagliardetto/solana-go"
@@ -70,4 +72,50 @@ func (r *realRPCClient) GetTransaction(
 	opts *rpc.GetTransactionOpts,
 ) (*rpc.GetTransactionResult, error) {
 	return r.client.GetTransaction(ctx, signature, opts)
+}
+
+// extractEndpointFromURL extracts a short identifier from the Solana RPC URL for metrics labeling.
+// Examples:
+//   - "https://api.mainnet-beta.solana.com" -> "mainnet"
+//   - "https://api.devnet.solana.com" -> "devnet"
+//   - "https://mainnet.helius-rpc.com/?api-key=..." -> "helius"
+//   - "https://some-endpoint.quiknode.pro/..." -> "quiknode"
+func extractEndpointFromURL(rpcURL string) string {
+	parsed, err := url.Parse(rpcURL)
+	if err != nil {
+		return "unknown"
+	}
+
+	host := parsed.Hostname()
+
+	// Check for common RPC providers
+	if strings.Contains(host, "helius") {
+		return "helius"
+	}
+	if strings.Contains(host, "quiknode") || strings.Contains(host, "quicknode") {
+		return "quiknode"
+	}
+	if strings.Contains(host, "alchemy") {
+		return "alchemy"
+	}
+	if strings.Contains(host, "triton") {
+		return "triton"
+	}
+	if strings.Contains(host, "rpcpool") {
+		return "rpcpool"
+	}
+
+	// Check for official Solana endpoints
+	if strings.Contains(host, "mainnet") {
+		return "mainnet"
+	}
+	if strings.Contains(host, "devnet") {
+		return "devnet"
+	}
+	if strings.Contains(host, "testnet") {
+		return "testnet"
+	}
+
+	// Fallback to hostname
+	return host
 }

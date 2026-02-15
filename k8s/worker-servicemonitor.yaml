@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ServiceMonitor
+metadata:
+  name: forohtoo-worker-metrics
+  namespace: default
+  labels:
+    app: forohtoo-worker
+    prometheus: temporal  # Important: must match Prometheus serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app: forohtoo-worker
+  endpoints:
+  - port: metrics  # Assuming you have a metrics port defined in your service
+    interval: 30s
+    path: /metrics

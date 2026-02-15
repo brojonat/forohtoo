@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gagliardetto/solana-go"
-	"github.com/gagliardetto/solana-go/rpc"
+	rpc_pkg "github.com/gagliardetto/solana-go/rpc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,16 +16,16 @@ import (
 // mockRPCClient implements RPCClient for testing.
 // It's behavior-focused: we set what it should return, not verify call sequences.
 type mockRPCClient struct {
-	signatures   []*rpc.TransactionSignature
-	transactions map[string]*rpc.GetTransactionResult
+	signatures   []*rpc_pkg.TransactionSignature
+	transactions map[string]*rpc_pkg.GetTransactionResult
 	err          error
 }
 
 func (m *mockRPCClient) GetSignaturesForAddress(
 	ctx context.Context,
 	address solana.PublicKey,
-	opts *rpc.GetSignaturesForAddressOpts,
-) ([]*rpc.TransactionSignature, error) {
+	opts *rpc_pkg.GetSignaturesForAddressOpts,
+) ([]*rpc_pkg.TransactionSignature, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -35,8 +35,8 @@ func (m *mockRPCClient) GetSignaturesForAddress(
 func (m *mockRPCClient) GetTransaction(
 	ctx context.Context,
 	signature solana.Signature,
-	opts *rpc.GetTransactionOpts,
-) (*rpc.GetTransactionResult, error) {
+	opts *rpc_pkg.GetTransactionOpts,
+) (*rpc_pkg.GetTransactionResult, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -46,9 +46,15 @@ func (m *mockRPCClient) GetTransaction(
 	return m.transactions[signature.String()], nil
 }
 
+// newTestClient creates a client for testing that uses the provided mock RPC client.
 func newTestClient(mock *mockRPCClient) *Client {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewClient(mock, "test", nil, logger) // nil metrics for tests
+	client := NewClient([]string{"http://test"}, nil, logger)
+	// Inject the mock RPC client factory for testing
+	client.rpcClientFactory = func() (RPCClient, string) {
+		return mock, "test"
+	}
+	return client
 }
 
 func TestGetTransactionsSince_NoLastSignature(t *testing.T) {
@@ -64,7 +70,7 @@ func TestGetTransactionsSince_NoLastSignature(t *testing.T) {
 	past2 := solana.UnixTimeSeconds(time.Now().Unix() - 20)
 
 	mock := &mockRPCClient{
-		signatures: []*rpc.TransactionSignature{
+		signatures: []*rpc_pkg.TransactionSignature{
 			{
 				Signature: sig1,
 				Slot:      100,
@@ -123,7 +129,7 @@ func TestGetTransactionsSince_WithLastSignature(t *testing.T) {
 	past1 := solana.UnixTimeSeconds(time.Now().Unix() - 10)
 
 	mock := &mockRPCClient{
-		signatures: []*rpc.TransactionSignature{
+		signatures: []*rpc_pkg.TransactionSignature{
 			{
 				Signature: sig1,
 				Slot:      100,
@@ -160,7 +166,7 @@ func TestGetTransactionsSince_EmptyResult(t *testing.T) {
 	ctx := context.Background()
 
 	mock := &mockRPCClient{
-		signatures: []*rpc.TransactionSignature{},
+		signatures: []*rpc_pkg.TransactionSignature{},
 	}
 
 	client := newTestClient(mock)
@@ -213,7 +219,7 @@ func TestGetTransactionsSince_FailedTransaction(t *testing.T) {
 	past1 := solana.UnixTimeSeconds(time.Now().Unix() - 10)
 
 	mock := &mockRPCClient{
-		signatures: []*rpc.TransactionSignature{
+		signatures: []*rpc_pkg.TransactionSignature{
 			{
 				Signature: sig1,
 				Slot:      100,

@@ -8,7 +8,7 @@ import (
 
 	"github.com/brojonat/forohtoo/service/metrics"
 	"github.com/gagliardetto/solana-go"
-	"github.com/gagliardetto/solana-go/rpc"
+	rpc_pkg "github.com/gagliardetto/solana-go/rpc"
 )
 
 // RPCClient is an interface for the Solana RPC operations we need.
@@ -17,35 +17,47 @@ type RPCClient interface {
 	GetSignaturesForAddress(
 		ctx context.Context,
 		address solana.PublicKey,
-		opts *rpc.GetSignaturesForAddressOpts,
-	) ([]*rpc.TransactionSignature, error)
+		opts *rpc_pkg.GetSignaturesForAddressOpts,
+	) ([]*rpc_pkg.TransactionSignature, error)
 
 	GetTransaction(
 		ctx context.Context,
 		signature solana.Signature,
-		opts *rpc.GetTransactionOpts,
-	) (*rpc.GetTransactionResult, error)
+		opts *rpc_pkg.GetTransactionOpts,
+	) (*rpc_pkg.GetTransactionResult, error)
 }
 
 // Client provides methods for polling Solana transactions.
 // It wraps the RPC client with domain-specific operations.
 type Client struct {
-	rpc      RPCClient
-	logger   *slog.Logger
-	metrics  *metrics.Metrics
-	endpoint string // RPC endpoint identifier for metrics (e.g., "mainnet", "devnet", rpc host)
+	endpoints        []string // Pool of RPC endpoints to randomly select from for each request
+	logger           *slog.Logger
+	metrics          *metrics.Metrics
+	rpcClientFactory func() (RPCClient, string) // Optional: inject for testing
 }
 
-// NewClient creates a new Solana client.
-// The endpoint parameter is used for metrics labeling (e.g., "mainnet", "devnet", or RPC hostname).
+// NewClient creates a new Solana client with multiple endpoints for load distribution.
+// Each RPC request will randomly select an endpoint from the provided list.
 // If metrics is nil, no metrics will be recorded.
-func NewClient(rpcClient RPCClient, endpoint string, m *metrics.Metrics, logger *slog.Logger) *Client {
+func NewClient(endpoints []string, m *metrics.Metrics, logger *slog.Logger) *Client {
 	return &Client{
-		rpc:      rpcClient,
-		logger:   logger,
-		metrics:  m,
-		endpoint: endpoint,
+		endpoints: endpoints,
+		logger:    logger,
+		metrics:   m,
 	}
+}
+
+// selectRPCClient creates a new RPC client with a randomly selected endpoint.
+// Returns the client and the endpoint identifier for metrics/logging.
+// If rpcClientFactory is set (for testing), it will be used instead.
+func (c *Client) selectRPCClient() (RPCClient, string) {
+	if c.rpcClientFactory != nil {
+		return c.rpcClientFactory()
+	}
+	endpoint, _ := SelectRandomEndpoint(c.endpoints)
+	rpcClient := NewRPCClient(endpoint)
+	endpointID := extractEndpointFromURL(endpoint)
+	return rpcClient, endpointID
 }
 
 // GetTransactionsSinceParams contains parameters for fetching transactions.
@@ -67,8 +79,11 @@ func (c *Client) GetTransactionsSince(
 	ctx context.Context,
 	params GetTransactionsSinceParams,
 ) ([]*Transaction, error) {
+	// Select random RPC endpoint for this request
+	rpc, endpoint := c.selectRPCClient()
+
 	// Build RPC options
-	opts := &rpc.GetSignaturesForAddressOpts{
+	opts := &rpc_pkg.GetSignaturesForAddressOpts{
 		Limit: &params.Limit,
 	}
 	if params.LastSignature != nil {
@@ -81,11 +96,12 @@ func (c *Client) GetTransactionsSince(
 		"limit", params.Limit,
 		"until", params.LastSignature,
 		"existing_sigs_count", len(params.ExistingSignatures),
+		"endpoint", endpoint,
 	)
 
 	// Fetch signatures from RPC
 	start := time.Now()
-	signatures, err := c.rpc.GetSignaturesForAddress(ctx, params.Wallet, opts)
+	signatures, err := rpc.GetSignaturesForAddress(ctx, params.Wallet, opts)
 	duration := time.Since(start).Seconds()
 
 	// Record metrics for GetSignaturesForAddress call
@@ -95,12 +111,13 @@ func (c *Client) GetTransactionsSince(
 		c.logger.ErrorContext(ctx, "failed to get signatures",
 			"wallet", params.Wallet.String(),
 			"error", err,
+			"endpoint", endpoint,
 		)
 	}
 	if c.metrics != nil {
-		c.metrics.RecordRPCCall("GetSignaturesForAddress", status, c.endpoint, duration)
+		c.metrics.RecordRPCCall("GetSignaturesForAddress", status, endpoint, duration)
 		if err == nil {
-			c.metrics.RecordRPCSignaturesPerCall(c.endpoint, float64(len(signatures)))
+			c.metrics.RecordRPCSignaturesPerCall(endpoint, float64(len(signatures)))
 		}
 	}
 
@@ -158,7 +175,7 @@ func (c *Client) GetTransactionsSince(
 		// Helius/Premium: can be reduced to 100-150ms
 		time.Sleep(600 * time.Millisecond)
 
-		var result *rpc.GetTransactionResult
+		var result *rpc_pkg.GetTransactionResult
 		var err error
 
 		// Retry logic with exponential backoff
@@ -167,12 +184,12 @@ func (c *Client) GetTransactionsSince(
 		const maxAttempts = 3
 		for attempt := range maxAttempts {
 			// Fetch full transaction details with support for versioned transactions
-			txnOpts := &rpc.GetTransactionOpts{
+			txnOpts := &rpc_pkg.GetTransactionOpts{
 				Encoding:                       solana.EncodingBase64,
 				MaxSupportedTransactionVersion: &[]uint64{0}[0],
 			}
 			txnStart := time.Now()
-			result, err = c.rpc.GetTransaction(ctx, sig.Signature, txnOpts)
+			result, err = rpc.GetTransaction(ctx, sig.Signature, txnOpts)
 			txnDuration := time.Since(txnStart).Seconds()
 
 			// Record metrics for GetTransaction call
@@ -181,7 +198,7 @@ func (c *Client) GetTransactionsSince(
 				txnStatus = "error"
 			}
 			if c.metrics != nil {
-				c.metrics.RecordRPCCall("GetTransaction", txnStatus, c.endpoint, txnDuration)
+				c.metrics.RecordRPCCall("GetTransaction", txnStatus, endpoint, txnDuration)
 			}
 
 			if err == nil {
@@ -195,10 +212,11 @@ func (c *Client) GetTransactionsSince(
 					"signature", sig.Signature.String(),
 					"attempt", attempt+1,
 					"backoff_seconds", backoff.Seconds(),
+					"endpoint", endpoint,
 				)
 				// Record rate limit hit
 				if c.metrics != nil {
-					c.metrics.RecordRateLimitHit(c.endpoint)
+					c.metrics.RecordRateLimitHit(endpoint)
 					c.metrics.RecordRPCRetry("GetTransaction", "rate_limit")
 				}
 				time.Sleep(backoff)
@@ -217,11 +235,11 @@ func (c *Client) GetTransactionsSince(
 				}
 
 				// Retry immediately without version support
-				legacyTxnOpts := &rpc.GetTransactionOpts{
+				legacyTxnOpts := &rpc_pkg.GetTransactionOpts{
 					Encoding: solana.EncodingBase64,
 				}
 				legacyStart := time.Now()
-				result, err = c.rpc.GetTransaction(ctx, sig.Signature, legacyTxnOpts)
+				result, err = rpc.GetTransaction(ctx, sig.Signature, legacyTxnOpts)
 				legacyDuration := time.Since(legacyStart).Seconds()
 
 				// Record metrics for legacy retry
@@ -230,7 +248,7 @@ func (c *Client) GetTransactionsSince(
 					legacyStatus = "error"
 				}
 				if c.metrics != nil {
-					c.metrics.RecordRPCCall("GetTransaction", legacyStatus, c.endpoint, legacyDuration)
+					c.metrics.RecordRPCCall("GetTransaction", legacyStatus, endpoint, legacyDuration)
 				}
 
 				if err == nil {

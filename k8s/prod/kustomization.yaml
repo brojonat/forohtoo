@@ -1,6 +1,7 @@
 resources:
   - server.yaml
   - worker.yaml
+  - worker-metrics-service.yaml
   - ingress.yaml
 
 secretGenerator:
