@@ -1,0 +1,10 @@
+# Exported dashboards (keep originals only)
+grafana/*-exported.json
+
+# Debug files
+debug-*.txt
+
+# Temporary files
+*.tmp
+*.bak
+.DS_Store

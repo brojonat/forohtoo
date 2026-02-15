@@ -1,0 +1,224 @@
+{
+  "dashboard": {
+    "title": "Forohtoo Workflows",
+    "tags": ["forohtoo", "workflows", "temporal"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 0,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+        "type": "graph",
+        "title": "Activity Execution Duration (p50, p95, p99)",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "P1E53E98DCFC0B173"
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(poll_activity_duration_seconds_bucket[5m]))",
+            "legendFormat": "p50 - {{activity}}",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "P1E53E98DCFC0B173"
+            }
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(poll_activity_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95 - {{activity}}",
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "P1E53E98DCFC0B173"
+            }
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(poll_activity_duration_seconds_bucket[5m]))",
+            "legendFormat": "p99 - {{activity}}",
+            "refId": "C",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "P1E53E98DCFC0B173"
+            }
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "s",
+            "label": "Duration"
+          },
+          {
+            "format": "short"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+        "type": "graph",
+        "title": "Activity Execution Rate (per minute)",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "P1E53E98DCFC0B173"
+        },
+        "targets": [
+          {
+            "expr": "sum by (activity) (rate(poll_activity_duration_seconds_count[5m])) * 60",
+            "legendFormat": "{{activity}}",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "P1E53E98DCFC0B173"
+            }
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "ops",
+            "label": "Executions/min"
+          },
+          {
+            "format": "short"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 },
+        "type": "table",
+        "title": "Activity Execution Summary (Last 5 minutes)",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "P1E53E98DCFC0B173"
+        },
+        "targets": [
+          {
+            "expr": "sum by (activity, wallet_address) (increase(poll_activity_duration_seconds_count[5m]))",
+            "format": "table",
+            "instant": true,
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "P1E53E98DCFC0B173"
+            }
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true
+              },
+              "indexByName": {},
+              "renameByName": {
+                "activity": "Activity",
+                "wallet_address": "Wallet",
+                "Value": "Executions"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+        "type": "stat",
+        "title": "Total Activity Executions (Last Hour)",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "P1E53E98DCFC0B173"
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(poll_activity_duration_seconds_count[1h]))",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "P1E53E98DCFC0B173"
+            }
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 10
+                },
+                {
+                  "color": "green",
+                  "value": 50
+                }
+              ]
+            },
+            "unit": "none"
+          }
+        }
+      },
+      {
+        "id": 5,
+        "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+        "type": "stat",
+        "title": "Active Wallets Being Monitored",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "P1E53E98DCFC0B173"
+        },
+        "targets": [
+          {
+            "expr": "count(count by (wallet_address) (poll_activity_duration_seconds_count))",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "P1E53E98DCFC0B173"
+            }
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "none"
+          }
+        }
+      }
+    ]
+  },
+  "overwrite": true
+}
