@@ -75,6 +75,9 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 		// Get wallet address from URL path parameter (may be empty for "all wallets" route)
 		address := r.PathValue("address")
 
+		// Get network from query parameter (required for filtering transactions)
+		network := r.URL.Query().Get("network")
+
 		// Determine subject filter and description for logging/responses
 		var subject string
 		var walletDesc string
@@ -139,22 +142,42 @@ func handleStreamTransactions(publisher *SSEPublisher, logger *slog.Logger) http
 			// Fetch historical transactions from database
 			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 			defer cancel()
-			historical, err := publisher.store.ListTransactionsByTimeRange(ctx, start, end)
+
+			var historical []*db.Transaction
+			var err error
+
+			if address != "" && network != "" {
+				// Use optimized query when both address and network are provided
+				historical, err = publisher.store.ListTransactionsByWalletAndTimeRange(ctx, db.ListTransactionsByWalletAndTimeRangeParams{
+					WalletAddress: address,
+					Network:       network,
+					StartTime:     start,
+					EndTime:       end,
+				})
+			} else {
+				// Fetch all and filter in Go
+				historical, err = publisher.store.ListTransactionsByTimeRange(ctx, start, end)
+				if err == nil {
+					filtered := make([]*db.Transaction, 0, len(historical))
+					for _, t := range historical {
+						// Filter by address if specified
+						if address != "" && t.WalletAddress != address {
+							continue
+						}
+						// Filter by network if specified
+						if network != "" && t.Network != network {
+							continue
+						}
+						filtered = append(filtered, t)
+					}
+					historical = filtered
+				}
+			}
+
 			if err != nil {
 				logger.ErrorContext(r.Context(), "failed to load historical transactions", "error", err)
 				fmt.Fprintf(w, "event: error\ndata: {\"error\": \"failed to load history\"}\n\n")
 				return
-			}
-
-			// Filter by wallet if requested
-			if address != "" {
-				filtered := make([]*db.Transaction, 0, len(historical))
-				for _, t := range historical {
-					if t.WalletAddress == address {
-						filtered = append(filtered, t)
-					}
-				}
-				historical = filtered
 			}
 
 		// Limit to 1000 events maximum

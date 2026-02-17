@@ -619,15 +619,22 @@ func computeAssociatedTokenAddress(walletAddress string, tokenMint string) (stri
 }
 
 // handleListTransactions returns a handler that lists transactions for a specific wallet.
-// GET /api/v1/transactions?wallet_address=ADDRESS&limit=N&offset=N
+// GET /api/v1/transactions?wallet_address=ADDRESS&network=NETWORK&limit=N&offset=N
 func handleListTransactions(store *db.Store, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
 		walletAddress := query.Get("wallet_address")
+		network := query.Get("network")
 
 		// wallet_address is required
 		if walletAddress == "" {
 			writeError(w, "wallet_address query parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		// network is required
+		if err := validateNetwork(network); err != nil {
+			writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -675,6 +682,7 @@ func handleListTransactions(store *db.Store, logger *slog.Logger) http.Handler {
 		// Query transactions
 		transactions, err := store.ListTransactionsByWallet(r.Context(), db.ListTransactionsByWalletParams{
 			WalletAddress: walletAddress,
+			Network:       network,
 			Limit:         limit,
 			Offset:        offset,
 		})
@@ -684,7 +692,7 @@ func handleListTransactions(store *db.Store, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		logger.Debug("transactions listed", "wallet", walletAddress, "count", len(transactions))
+		logger.Debug("transactions listed", "wallet", walletAddress, "network", network, "count", len(transactions))
 
 		// Convert to response format
 		resp := make([]transactionResponse, len(transactions))
