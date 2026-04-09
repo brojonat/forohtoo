@@ -9,7 +9,9 @@ import (
 
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
+	"github.com/brojonat/forohtoo/service/helius"
 	"github.com/brojonat/forohtoo/service/metrics"
+	natspkg "github.com/brojonat/forohtoo/service/nats"
 	"github.com/brojonat/forohtoo/service/temporal"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -20,6 +22,8 @@ type Server struct {
 	cfg            *config.Config
 	store          *db.Store
 	temporalClient *temporal.Client
+	heliusClient   *helius.Client
+	natsPublisher  natspkg.Publisher
 	ssePublisher   *SSEPublisher
 	renderer       *TemplateRenderer
 	metrics        *metrics.Metrics
@@ -28,16 +32,19 @@ type Server struct {
 }
 
 // New creates a new HTTP server with the given dependencies.
-// The temporalClient is used for managing Temporal schedules, starting workflows, and querying workflow status.
+// The temporalClient is used for managing Temporal schedules (fallback when Helius is disabled).
+// The heliusClient is optional - when set, uses Helius webhooks instead of Temporal polling.
+// The natsPublisher is optional - used by the webhook handler to publish events directly.
 // The ssePublisher is optional - if nil, SSE endpoints won't be available.
-// The renderer is optional - if nil, HTML endpoints won't be available.
 // The metrics is optional - if nil, metrics endpoints won't be available.
-func New(addr string, cfg *config.Config, store *db.Store, temporalClient *temporal.Client, ssePublisher *SSEPublisher, m *metrics.Metrics, logger *slog.Logger) *Server {
+func New(addr string, cfg *config.Config, store *db.Store, temporalClient *temporal.Client, heliusClient *helius.Client, natsPublisher natspkg.Publisher, ssePublisher *SSEPublisher, m *metrics.Metrics, logger *slog.Logger) *Server {
 	return &Server{
 		addr:           addr,
 		cfg:            cfg,
 		store:          store,
 		temporalClient: temporalClient,
+		heliusClient:   heliusClient,
+		natsPublisher:  natsPublisher,
 		ssePublisher:   ssePublisher,
 		metrics:        m,
 		logger:         logger,
@@ -65,11 +72,17 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
 	// Wallet asset routes
-	mux.Handle("POST /api/v1/wallet-assets", handleRegisterWalletAsset(s.store, s.temporalClient, s.cfg, s.logger))
-	mux.Handle("DELETE /api/v1/wallet-assets/{address}", handleUnregisterWalletAsset(s.store, s.temporalClient, s.logger))
+	mux.Handle("POST /api/v1/wallet-assets", handleRegisterWalletAsset(s.store, s.temporalClient, s.heliusClient, s.cfg, s.logger))
+	mux.Handle("DELETE /api/v1/wallet-assets/{address}", handleUnregisterWalletAsset(s.store, s.temporalClient, s.heliusClient, s.cfg, s.logger))
 	mux.Handle("GET /api/v1/wallet-assets/{address}", handleGetWalletAsset(s.store, s.logger))
 	mux.Handle("GET /api/v1/wallet-assets", handleListWalletAssets(s.store, s.logger))
 	mux.Handle("GET /api/v1/transactions", handleListTransactions(s.store, s.logger))
+
+	// Helius webhook endpoint (receives push notifications from Helius)
+	if s.cfg.HeliusEnabled() {
+		mux.Handle("POST /api/v1/webhooks/helius", handleHeliusWebhook(s.store, s.natsPublisher, s.cfg.HeliusWebhookAuthToken, s.logger))
+		s.logger.Info("Helius webhook endpoint enabled", "path", "/api/v1/webhooks/helius")
+	}
 
 	// Payment gateway routes
 	mux.Handle("GET /api/v1/registration-status/{workflow_id}", handleGetRegistrationStatus(s.temporalClient, s.logger))
@@ -192,11 +205,23 @@ func (s *Server) ensureServiceWalletRegistered(ctx context.Context) error {
 		return fmt.Errorf("failed to register service wallet: %w", err)
 	}
 
-	// Create Temporal schedule
-	if err := s.temporalClient.UpsertWalletAssetSchedule(ctx, serviceWallet, serviceNetwork, assetType, tokenMint, ata, pollInterval); err != nil {
-		// Rollback wallet creation
-		s.store.DeleteWallet(ctx, serviceWallet, serviceNetwork, assetType, tokenMint)
-		return fmt.Errorf("failed to create schedule for service wallet: %w", err)
+	// Set up monitoring: Helius webhooks or Temporal schedule
+	if s.cfg.HeliusEnabled() && s.heliusClient != nil {
+		// Add the ATA (for SPL tokens) or wallet address (for SOL) to the Helius webhook
+		monitorAddr := serviceWallet
+		if ata != nil {
+			monitorAddr = *ata
+		}
+		if err := s.heliusClient.AddAddress(ctx, monitorAddr); err != nil {
+			s.store.DeleteWallet(ctx, serviceWallet, serviceNetwork, assetType, tokenMint)
+			return fmt.Errorf("failed to add service wallet to Helius webhook: %w", err)
+		}
+	} else {
+		// Fallback to Temporal polling
+		if err := s.temporalClient.UpsertWalletAssetSchedule(ctx, serviceWallet, serviceNetwork, assetType, tokenMint, ata, pollInterval); err != nil {
+			s.store.DeleteWallet(ctx, serviceWallet, serviceNetwork, assetType, tokenMint)
+			return fmt.Errorf("failed to create schedule for service wallet: %w", err)
+		}
 	}
 
 	s.logger.Info("service wallet registered successfully",
@@ -204,6 +229,7 @@ func (s *Server) ensureServiceWalletRegistered(ctx context.Context) error {
 		"network", serviceNetwork,
 		"asset_type", assetType,
 		"poll_interval", wallet.PollInterval,
+		"helius_enabled", s.cfg.HeliusEnabled(),
 	)
 
 	return nil

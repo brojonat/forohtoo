@@ -67,7 +67,7 @@ func TestRegisterWalletAsset_WithTemporalSchedule_Integration(t *testing.T) {
 
 	// Create handler
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	handler := handleRegisterWalletAsset(store, temporalClient, cfg, logger)
+	handler := handleRegisterWalletAsset(store, temporalClient, nil, cfg, logger)
 
 	// Test wallet registration
 	testAddress := "TEST-HTTP-" + time.Now().Format("20060102150405")
@@ -183,7 +183,7 @@ func TestUnregisterWalletAsset_WithTemporalSchedule_Integration(t *testing.T) {
 
 	// Create handler
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	handler := handleUnregisterWalletAsset(store, temporalClient, logger)
+	handler := handleUnregisterWalletAsset(store, temporalClient, nil, cfg, logger)
 
 	// Test wallet unregistration
 	req := httptest.NewRequest("DELETE", "/api/v1/wallet-assets/"+testAddress+"?network=devnet&asset_type=spl-token&token_mint="+tokenMint, nil)
@@ -250,7 +250,7 @@ func TestRegisterWalletAsset_PaymentGateway_Integration(t *testing.T) {
 
 	// Create handler
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	handler := handleRegisterWalletAsset(store, temporalClient, cfg, logger)
+	handler := handleRegisterWalletAsset(store, temporalClient, nil, cfg, logger)
 
 	// Test wallet registration (should require payment)
 	testAddress := "TEST-PAYMENT-HTTP-" + time.Now().Format("20060102150405")

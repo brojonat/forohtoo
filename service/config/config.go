@@ -35,7 +35,12 @@ type Config struct {
 	TemporalNamespace string
 	TemporalTaskQueue string
 
-	// Polling configuration
+	// Helius webhook configuration (optional - when set, uses webhooks instead of RPC polling)
+	HeliusAPIKey           string // Helius API key for webhook management
+	HeliusWebhookURL       string // Public URL where Helius sends webhook callbacks
+	HeliusWebhookAuthToken string // Shared secret for authenticating incoming webhooks
+
+	// Polling configuration (used as fallback when Helius is not configured)
 	DefaultPollInterval time.Duration
 	MinPollInterval     time.Duration
 
@@ -107,6 +112,21 @@ func Load() (*Config, error) {
 	// Validate USDC mint addresses are different
 	if cfg.USDCMainnetMintAddress == cfg.USDCDevnetMintAddress {
 		errs = append(errs, fmt.Errorf("USDC_MAINNET_MINT_ADDRESS and USDC_DEVNET_MINT_ADDRESS must be different"))
+	}
+
+	// Helius webhook configuration (optional)
+	cfg.HeliusAPIKey = os.Getenv("HELIUS_API_KEY")
+	cfg.HeliusWebhookURL = os.Getenv("HELIUS_WEBHOOK_URL")
+	cfg.HeliusWebhookAuthToken = os.Getenv("HELIUS_WEBHOOK_AUTH_TOKEN")
+
+	// Validate Helius config: if API key is set, webhook URL and auth token are required
+	if cfg.HeliusAPIKey != "" {
+		if cfg.HeliusWebhookURL == "" {
+			errs = append(errs, fmt.Errorf("HELIUS_WEBHOOK_URL is required when HELIUS_API_KEY is set"))
+		}
+		if cfg.HeliusWebhookAuthToken == "" {
+			errs = append(errs, fmt.Errorf("HELIUS_WEBHOOK_AUTH_TOKEN is required when HELIUS_API_KEY is set"))
+		}
 	}
 
 	// Temporal configuration
@@ -254,6 +274,12 @@ func parseEndpoints(endpointsStr string) []string {
 		}
 	}
 	return endpoints
+}
+
+// HeliusEnabled returns true if Helius webhook integration is configured.
+// When enabled, the server uses Helius webhooks instead of Temporal RPC polling.
+func (c *Config) HeliusEnabled() bool {
+	return c.HeliusAPIKey != "" && c.HeliusWebhookURL != "" && c.HeliusWebhookAuthToken != ""
 }
 
 // GetSupportedMints returns the list of supported SPL token mint addresses for a given network.

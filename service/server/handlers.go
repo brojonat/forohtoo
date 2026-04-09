@@ -12,6 +12,7 @@ import (
 
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
+	"github.com/brojonat/forohtoo/service/helius"
 	"github.com/brojonat/forohtoo/service/temporal"
 	solanago "github.com/gagliardetto/solana-go"
 	"go.temporal.io/sdk/client"
@@ -104,10 +105,10 @@ func handleListWalletAssets(store *db.Store, logger *slog.Logger) http.Handler {
 }
 
 // handleRegisterWalletAsset returns a handler that registers a new wallet+asset
-// and creates a Temporal schedule for polling.
+// and sets up monitoring via Helius webhooks (preferred) or Temporal schedule (fallback).
 // With payment gateway enabled, new wallets require payment first.
 // POST /api/v1/wallet-assets
-func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client, cfg *config.Config, logger *slog.Logger) http.Handler {
+func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client, heliusClient *helius.Client, cfg *config.Config, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Limit request body size to prevent memory exhaustion
 		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
@@ -288,24 +289,43 @@ func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client,
 			return
 		}
 
-		// Upsert Temporal schedule (create or update if exists)
-		if err := temporalClient.UpsertWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, cfg.DefaultPollInterval); err != nil {
-			logger.Error("failed to upsert schedule", "address", req.Address, "network", req.Network, "error", err)
-
-			// Rollback: delete the wallet asset we just created/updated
-			if delErr := store.DeleteWallet(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint); delErr != nil {
-				logger.Error("failed to rollback wallet asset upsert", "address", req.Address, "network", req.Network, "error", delErr)
+		// Set up monitoring: Helius webhooks or Temporal schedule
+		if cfg.HeliusEnabled() && heliusClient != nil {
+			// Add the monitored address to the Helius webhook
+			monitorAddr := req.Address
+			if ata != nil {
+				monitorAddr = *ata
 			}
+			if err := heliusClient.AddAddress(r.Context(), monitorAddr); err != nil {
+				logger.Error("failed to add address to Helius webhook", "address", monitorAddr, "error", err)
 
-			writeError(w, "failed to upsert schedule for wallet asset", http.StatusInternalServerError)
-			return
+				if delErr := store.DeleteWallet(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint); delErr != nil {
+					logger.Error("failed to rollback wallet asset upsert", "address", req.Address, "error", delErr)
+				}
+
+				writeError(w, "failed to add address to webhook", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			// Fallback to Temporal polling
+			if err := temporalClient.UpsertWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, cfg.DefaultPollInterval); err != nil {
+				logger.Error("failed to upsert schedule", "address", req.Address, "network", req.Network, "error", err)
+
+				if delErr := store.DeleteWallet(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint); delErr != nil {
+					logger.Error("failed to rollback wallet asset upsert", "address", req.Address, "network", req.Network, "error", delErr)
+				}
+
+				writeError(w, "failed to upsert schedule for wallet asset", http.StatusInternalServerError)
+				return
+			}
 		}
 
-		logger.Info("wallet asset upserted with schedule",
+		logger.Info("wallet asset upserted",
 			"address", wallet.Address,
 			"network", req.Network,
 			"asset_type", req.Asset.Type,
 			"token_mint", tokenMint,
+			"helius_enabled", cfg.HeliusEnabled(),
 		)
 
 		// Return wallet asset
@@ -315,9 +335,9 @@ func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client,
 }
 
 // handleUnregisterWalletAsset returns a handler that unregisters a wallet+asset
-// and deletes its Temporal schedule.
+// and removes it from Helius webhook or deletes its Temporal schedule.
 // DELETE /api/v1/wallet-assets/{address}?network={network}&asset_type={type}&token_mint={mint}
-func handleUnregisterWalletAsset(store *db.Store, temporalClient *temporal.Client, logger *slog.Logger) http.Handler {
+func handleUnregisterWalletAsset(store *db.Store, temporalClient *temporal.Client, heliusClient *helius.Client, cfg *config.Config, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		address := r.PathValue("address")
 		network := r.URL.Query().Get("network")
@@ -363,12 +383,27 @@ func handleUnregisterWalletAsset(store *db.Store, temporalClient *temporal.Clien
 			return
 		}
 
-		// Delete Temporal schedule first (before DB)
-		// If this fails, we don't want to delete the wallet asset from DB
-		if err := temporalClient.DeleteWalletAssetSchedule(r.Context(), address, network, assetType, tokenMint); err != nil {
-			logger.Error("failed to delete schedule", "address", address, "network", network, "error", err)
-			writeError(w, "failed to delete schedule for wallet asset", http.StatusInternalServerError)
-			return
+		// Remove monitoring: Helius webhook or Temporal schedule
+		if cfg.HeliusEnabled() && heliusClient != nil {
+			// Determine the monitored address (wallet for SOL, ATA for SPL tokens)
+			monitorAddr := address
+			if assetType == "spl-token" && tokenMint != "" {
+				if ataAddr, err := computeAssociatedTokenAddress(address, tokenMint); err == nil {
+					monitorAddr = ataAddr
+				}
+			}
+			if err := heliusClient.RemoveAddress(r.Context(), monitorAddr); err != nil {
+				logger.Error("failed to remove address from Helius webhook", "address", monitorAddr, "error", err)
+				writeError(w, "failed to remove address from webhook", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			// Fallback to Temporal schedule deletion
+			if err := temporalClient.DeleteWalletAssetSchedule(r.Context(), address, network, assetType, tokenMint); err != nil {
+				logger.Error("failed to delete schedule", "address", address, "network", network, "error", err)
+				writeError(w, "failed to delete schedule for wallet asset", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		// Delete wallet asset from database

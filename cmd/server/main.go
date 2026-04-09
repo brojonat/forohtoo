@@ -10,7 +10,9 @@ import (
 
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
+	"github.com/brojonat/forohtoo/service/helius"
 	"github.com/brojonat/forohtoo/service/metrics"
+	natspkg "github.com/brojonat/forohtoo/service/nats"
 	"github.com/brojonat/forohtoo/service/server"
 	"github.com/brojonat/forohtoo/service/temporal"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -77,8 +79,37 @@ func main() {
 	defer ssePublisher.Close()
 	logger.Info("connected to NATS for SSE streaming", "url", cfg.NATSURL)
 
-	// Initialize HTTP server with temporal client, SSE publisher, and metrics
-	httpServer := server.New(cfg.ServerAddr, cfg, store, temporalClient, ssePublisher, metricsCollector, logger)
+	// Initialize Helius client for webhook-based transaction monitoring (optional)
+	var heliusClient *helius.Client
+	if cfg.HeliusEnabled() {
+		heliusClient = helius.NewClient(cfg.HeliusAPIKey, cfg.HeliusWebhookURL, cfg.HeliusWebhookAuthToken, logger)
+		if err := heliusClient.EnsureWebhooks(ctx); err != nil {
+			logger.Error("failed to initialize Helius webhooks", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("Helius webhook integration enabled",
+			"webhook_url", cfg.HeliusWebhookURL,
+			"webhook_id", heliusClient.WebhookID(),
+		)
+	} else {
+		logger.Info("Helius not configured, using Temporal polling for transaction monitoring")
+	}
+
+	// Initialize NATS publisher for webhook handler to publish events directly
+	var natsPublisher natspkg.Publisher
+	if cfg.HeliusEnabled() {
+		np, err := natspkg.NewPublisher(cfg.NATSURL, logger)
+		if err != nil {
+			logger.Error("failed to create NATS publisher for webhook handler", "error", err)
+			os.Exit(1)
+		}
+		defer np.Close()
+		natsPublisher = np
+		logger.Info("NATS publisher initialized for webhook handler")
+	}
+
+	// Initialize HTTP server with all dependencies
+	httpServer := server.New(cfg.ServerAddr, cfg, store, temporalClient, heliusClient, natsPublisher, ssePublisher, metricsCollector, logger)
 
 	// Enable HTML template rendering from embedded files
 	if err := httpServer.WithTemplates(); err != nil {
