@@ -11,29 +11,28 @@ import (
 	"time"
 )
 
-const (
-	baseURL = "https://api.helius.dev/v0"
-)
+const defaultBaseURL = "https://api.helius.dev/v0"
 
 // Client manages Helius webhooks via the Helius API.
-// It maintains one webhook per network (mainnet/devnet) and adds/removes
-// account addresses as wallets are registered/unregistered.
+// It maintains a single webhook and adds/removes account addresses
+// as wallets are registered/unregistered.
 type Client struct {
-	apiKey       string
-	webhookURL   string // Public callback URL for receiving webhook events
-	authHeader   string // Auth header value sent by Helius with each webhook delivery
-	httpClient   *http.Client
-	logger       *slog.Logger
+	apiKey     string
+	baseURL    string       // Helius API base URL (overridable for testing)
+	webhookURL string       // Public callback URL for receiving webhook events
+	authHeader string       // Auth header value sent by Helius with each webhook delivery
+	httpClient *http.Client
+	logger     *slog.Logger
 
-	// Cached webhook IDs per network, populated on EnsureWebhooks
+	// Cached webhook ID, populated on EnsureWebhooks
 	mainnetWebhookID string
-	devnetWebhookID  string
 }
 
 // NewClient creates a new Helius API client.
 func NewClient(apiKey, webhookURL, authHeader string, logger *slog.Logger) *Client {
 	return &Client{
 		apiKey:     apiKey,
+		baseURL:    defaultBaseURL,
 		webhookURL: webhookURL,
 		authHeader: authHeader,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
@@ -98,7 +97,7 @@ func (c *Client) CreateWebhook(ctx context.Context, addresses []string) (*Webhoo
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/webhooks?api-key=%s", baseURL, c.apiKey)
+	url := fmt.Sprintf("%s/webhooks?api-key=%s", c.baseURL, c.apiKey)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -126,7 +125,7 @@ func (c *Client) CreateWebhook(ctx context.Context, addresses []string) (*Webhoo
 
 // ListWebhooks returns all webhooks for this API key.
 func (c *Client) ListWebhooks(ctx context.Context) ([]Webhook, error) {
-	url := fmt.Sprintf("%s/webhooks?api-key=%s", baseURL, c.apiKey)
+	url := fmt.Sprintf("%s/webhooks?api-key=%s", c.baseURL, c.apiKey)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -153,7 +152,7 @@ func (c *Client) ListWebhooks(ctx context.Context) ([]Webhook, error) {
 
 // GetWebhook retrieves a webhook by ID.
 func (c *Client) GetWebhook(ctx context.Context, webhookID string) (*Webhook, error) {
-	url := fmt.Sprintf("%s/webhooks/%s?api-key=%s", baseURL, webhookID, c.apiKey)
+	url := fmt.Sprintf("%s/webhooks/%s?api-key=%s", c.baseURL, webhookID, c.apiKey)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -193,7 +192,7 @@ func (c *Client) UpdateWebhookAddresses(ctx context.Context, webhookID string, a
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/webhooks/%s?api-key=%s", baseURL, webhookID, c.apiKey)
+	url := fmt.Sprintf("%s/webhooks/%s?api-key=%s", c.baseURL, webhookID, c.apiKey)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -292,7 +291,7 @@ func (c *Client) RemoveAddress(ctx context.Context, address string) error {
 
 // DeleteWebhook deletes a webhook by ID.
 func (c *Client) DeleteWebhook(ctx context.Context, webhookID string) error {
-	url := fmt.Sprintf("%s/webhooks/%s?api-key=%s", baseURL, webhookID, c.apiKey)
+	url := fmt.Sprintf("%s/webhooks/%s?api-key=%s", c.baseURL, webhookID, c.apiKey)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)

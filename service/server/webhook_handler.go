@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -158,6 +159,10 @@ func handleHeliusWebhook(
 // For SOL assets, the key is the wallet address itself.
 // For SPL token assets, the key is the associated token address (ATA).
 func buildAddressMap(ctx context.Context, store *db.Store) (map[string]helius.WalletLookup, error) {
+	if store == nil {
+		return nil, fmt.Errorf("store is nil")
+	}
+
 	wallets, err := store.ListActiveWallets(ctx)
 	if err != nil {
 		return nil, err

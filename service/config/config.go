@@ -114,19 +114,18 @@ func Load() (*Config, error) {
 		errs = append(errs, fmt.Errorf("USDC_MAINNET_MINT_ADDRESS and USDC_DEVNET_MINT_ADDRESS must be different"))
 	}
 
-	// Helius webhook configuration (optional)
+	// Helius webhook configuration (required)
 	cfg.HeliusAPIKey = os.Getenv("HELIUS_API_KEY")
+	if cfg.HeliusAPIKey == "" {
+		errs = append(errs, fmt.Errorf("HELIUS_API_KEY is required"))
+	}
 	cfg.HeliusWebhookURL = os.Getenv("HELIUS_WEBHOOK_URL")
+	if cfg.HeliusWebhookURL == "" {
+		errs = append(errs, fmt.Errorf("HELIUS_WEBHOOK_URL is required"))
+	}
 	cfg.HeliusWebhookAuthToken = os.Getenv("HELIUS_WEBHOOK_AUTH_TOKEN")
-
-	// Validate Helius config: if API key is set, webhook URL and auth token are required
-	if cfg.HeliusAPIKey != "" {
-		if cfg.HeliusWebhookURL == "" {
-			errs = append(errs, fmt.Errorf("HELIUS_WEBHOOK_URL is required when HELIUS_API_KEY is set"))
-		}
-		if cfg.HeliusWebhookAuthToken == "" {
-			errs = append(errs, fmt.Errorf("HELIUS_WEBHOOK_AUTH_TOKEN is required when HELIUS_API_KEY is set"))
-		}
+	if cfg.HeliusWebhookAuthToken == "" {
+		errs = append(errs, fmt.Errorf("HELIUS_WEBHOOK_AUTH_TOKEN is required"))
 	}
 
 	// Temporal configuration
@@ -274,12 +273,6 @@ func parseEndpoints(endpointsStr string) []string {
 		}
 	}
 	return endpoints
-}
-
-// HeliusEnabled returns true if Helius webhook integration is configured.
-// When enabled, the server uses Helius webhooks instead of Temporal RPC polling.
-func (c *Config) HeliusEnabled() bool {
-	return c.HeliusAPIKey != "" && c.HeliusWebhookURL != "" && c.HeliusWebhookAuthToken != ""
 }
 
 // GetSupportedMints returns the list of supported SPL token mint addresses for a given network.

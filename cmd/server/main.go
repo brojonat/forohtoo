@@ -19,113 +19,78 @@ import (
 )
 
 func main() {
-	// Load and validate configuration from environment
-	// This fails fast if any required config is missing or invalid
 	cfg := config.MustLoad()
 
-	// Setup structured logging
 	logger := setupLogger(cfg.LogLevel)
-	logger.Info("starting server",
-		"addr", cfg.ServerAddr,
-		"log_level", cfg.LogLevel,
-	)
+	logger.Info("starting server", "addr", cfg.ServerAddr)
 
-	// Setup context with cancellation for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize database connection pool
+	// Database
 	dbPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		logger.Error("failed to connect to database", "error", err)
 		os.Exit(1)
 	}
 	defer dbPool.Close()
-
-	// Verify database connection
 	if err := dbPool.Ping(ctx); err != nil {
 		logger.Error("failed to ping database", "error", err)
 		os.Exit(1)
 	}
-	logger.Info("connected to database")
-
-	// Initialize database store
 	store := db.NewStore(dbPool)
 
-	// Initialize Prometheus metrics collector
-	metricsCollector := metrics.NewMetrics(nil) // nil uses default registry
-	logger.Info("Prometheus metrics collector initialized")
+	// Prometheus metrics
+	metricsCollector := metrics.NewMetrics(nil)
 
-	// Initialize Temporal client for schedule management
-	temporalClient, err := temporal.NewClient(
-		cfg.TemporalHost,
-		cfg.TemporalNamespace,
-		cfg.TemporalTaskQueue,
-		logger,
-	)
-	if err != nil {
-		logger.Error("failed to create temporal client", "error", err)
+	// Helius webhook client (primary ingestion path)
+	heliusClient := helius.NewClient(cfg.HeliusAPIKey, cfg.HeliusWebhookURL, cfg.HeliusWebhookAuthToken, logger)
+	if err := heliusClient.EnsureWebhooks(ctx); err != nil {
+		logger.Error("failed to initialize Helius webhooks", "error", err)
 		os.Exit(1)
 	}
-	defer temporalClient.Close()
-	logger.Info("connected to temporal", "host", cfg.TemporalHost, "namespace", cfg.TemporalNamespace)
+	logger.Info("Helius webhook integration ready", "webhook_id", heliusClient.WebhookID())
 
-	// Initialize SSE publisher for streaming transactions
+	// NATS publisher (for webhook handler to publish transaction events)
+	natsPublisher, err := natspkg.NewPublisher(cfg.NATSURL, logger)
+	if err != nil {
+		logger.Error("failed to create NATS publisher", "error", err)
+		os.Exit(1)
+	}
+	defer natsPublisher.Close()
+
+	// SSE publisher (for streaming to clients)
 	ssePublisher, err := server.NewSSEPublisher(cfg.NATSURL, store, logger)
 	if err != nil {
 		logger.Error("failed to create SSE publisher", "error", err)
 		os.Exit(1)
 	}
 	defer ssePublisher.Close()
-	logger.Info("connected to NATS for SSE streaming", "url", cfg.NATSURL)
 
-	// Initialize Helius client for webhook-based transaction monitoring (optional)
-	var heliusClient *helius.Client
-	if cfg.HeliusEnabled() {
-		heliusClient = helius.NewClient(cfg.HeliusAPIKey, cfg.HeliusWebhookURL, cfg.HeliusWebhookAuthToken, logger)
-		if err := heliusClient.EnsureWebhooks(ctx); err != nil {
-			logger.Error("failed to initialize Helius webhooks", "error", err)
-			os.Exit(1)
-		}
-		logger.Info("Helius webhook integration enabled",
-			"webhook_url", cfg.HeliusWebhookURL,
-			"webhook_id", heliusClient.WebhookID(),
-		)
-	} else {
-		logger.Info("Helius not configured, using Temporal polling for transaction monitoring")
-	}
-
-	// Initialize NATS publisher for webhook handler to publish events directly
-	var natsPublisher natspkg.Publisher
-	if cfg.HeliusEnabled() {
-		np, err := natspkg.NewPublisher(cfg.NATSURL, logger)
+	// Temporal client (only needed for payment gateway workflows)
+	var temporalClient *temporal.Client
+	if cfg.PaymentGateway.Enabled {
+		tc, err := temporal.NewClient(cfg.TemporalHost, cfg.TemporalNamespace, cfg.TemporalTaskQueue, logger)
 		if err != nil {
-			logger.Error("failed to create NATS publisher for webhook handler", "error", err)
+			logger.Error("failed to create temporal client", "error", err)
 			os.Exit(1)
 		}
-		defer np.Close()
-		natsPublisher = np
-		logger.Info("NATS publisher initialized for webhook handler")
+		defer tc.Close()
+		temporalClient = tc
+		logger.Info("temporal client ready (payment gateway)")
 	}
 
-	// Initialize HTTP server with all dependencies
 	httpServer := server.New(cfg.ServerAddr, cfg, store, temporalClient, heliusClient, natsPublisher, ssePublisher, metricsCollector, logger)
 
-	// Enable HTML template rendering from embedded files
 	if err := httpServer.WithTemplates(); err != nil {
-		logger.Warn("failed to load HTML templates, web pages disabled", "error", err)
+		logger.Warn("failed to load HTML templates", "error", err)
 	}
 
-	logger.Info("HTTP server initialized, all dependencies ready")
-
-	// Start HTTP server in background
 	serverErrors := make(chan error, 1)
 	go func() {
-		logger.Info("starting HTTP server", "addr", cfg.ServerAddr)
 		serverErrors <- httpServer.Start()
 	}()
 
-	// Wait for shutdown signal or server error
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 
@@ -135,22 +100,15 @@ func main() {
 		os.Exit(1)
 	case sig := <-shutdown:
 		logger.Info("shutdown signal received", "signal", sig.String())
-
-		// Graceful shutdown with timeout
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer shutdownCancel()
-
-		logger.Info("stopping HTTP server")
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
-			logger.Error("failed to shutdown HTTP server gracefully", "error", err)
+			logger.Error("failed to shutdown gracefully", "error", err)
 			os.Exit(1)
 		}
-
-		logger.Info("HTTP server shutdown complete")
 	}
 }
 
-// setupLogger creates a structured logger with the given log level.
 func setupLogger(levelStr string) *slog.Logger {
 	var level slog.Level
 	switch levelStr {
@@ -165,10 +123,5 @@ func setupLogger(levelStr string) *slog.Logger {
 	default:
 		level = slog.LevelInfo
 	}
-
-	opts := &slog.HandlerOptions{
-		Level: level,
-	}
-
-	return slog.New(slog.NewJSONHandler(os.Stderr, opts))
+	return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 }
