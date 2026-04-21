@@ -43,6 +43,7 @@ func TestCreateWebhook(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "wh-123", wh.WebhookID)
 	assert.Equal(t, "enhanced", gotBody.WebhookType)
+	assert.Equal(t, "success", gotBody.TxnStatus)
 	assert.Equal(t, []string{"addr1", "addr2"}, gotBody.AccountAddresses)
 	assert.Equal(t, "Bearer secret", gotBody.AuthHeader)
 }
@@ -205,6 +206,63 @@ func TestRemoveAddress_NotFound(t *testing.T) {
 	err := c.RemoveAddress(context.Background(), "not-in-list")
 	require.NoError(t, err)
 	assert.False(t, putCalled, "should not call PUT when address not in list")
+}
+
+func TestSyncAddresses_UpdatesWhenDifferent(t *testing.T) {
+	var gotAddresses []string
+	putCalled := false
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			json.NewEncoder(w).Encode(Webhook{
+				WebhookID:        "wh-1",
+				AccountAddresses: []string{"old-addr"},
+			})
+			return
+		}
+		if r.Method == http.MethodPut {
+			putCalled = true
+			var body UpdateWebhookRequest
+			json.NewDecoder(r.Body).Decode(&body)
+			gotAddresses = body.AccountAddresses
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	}))
+	defer srv.Close()
+
+	c := newClientWithBaseURL(srv.URL, "key", "https://example.com/webhook", "Bearer s", newTestLogger())
+	c.mainnetWebhookID = "wh-1"
+
+	err := c.SyncAddresses(context.Background(), []string{"new-addr-1", "new-addr-2"})
+	require.NoError(t, err)
+	assert.True(t, putCalled, "should call PUT when addresses differ")
+	assert.Equal(t, []string{"new-addr-1", "new-addr-2"}, gotAddresses)
+}
+
+func TestSyncAddresses_SkipsWhenIdentical(t *testing.T) {
+	putCalled := false
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			json.NewEncoder(w).Encode(Webhook{
+				WebhookID:        "wh-1",
+				AccountAddresses: []string{"addr-a", "addr-b"},
+			})
+			return
+		}
+		if r.Method == http.MethodPut {
+			putCalled = true
+		}
+	}))
+	defer srv.Close()
+
+	c := newClientWithBaseURL(srv.URL, "key", "https://example.com/webhook", "Bearer s", newTestLogger())
+	c.mainnetWebhookID = "wh-1"
+
+	err := c.SyncAddresses(context.Background(), []string{"addr-b", "addr-a"}) // same set, different order
+	require.NoError(t, err)
+	assert.False(t, putCalled, "should not call PUT when addresses are identical")
 }
 
 func TestAPIError(t *testing.T) {

@@ -82,6 +82,63 @@ func (c *Client) WebhookID() string {
 	return c.mainnetWebhookID
 }
 
+// SyncAddresses ensures the webhook's address list matches the provided set.
+// It fetches the current list and updates only if there's a difference.
+// Call this on startup to reconcile the webhook with all active wallets from the DB.
+func (c *Client) SyncAddresses(ctx context.Context, addresses []string) error {
+	webhookID := c.mainnetWebhookID
+	if webhookID == "" {
+		return fmt.Errorf("no webhook configured; call EnsureWebhooks first")
+	}
+
+	wh, err := c.GetWebhook(ctx, webhookID)
+	if err != nil {
+		return fmt.Errorf("failed to get webhook: %w", err)
+	}
+
+	// Build sets for comparison
+	current := make(map[string]bool, len(wh.AccountAddresses))
+	for _, addr := range wh.AccountAddresses {
+		current[addr] = true
+	}
+	desired := make(map[string]bool, len(addresses))
+	for _, addr := range addresses {
+		desired[addr] = true
+	}
+
+	// Check if sets are identical
+	if len(current) == len(desired) {
+		identical := true
+		for addr := range desired {
+			if !current[addr] {
+				identical = false
+				break
+			}
+		}
+		if identical {
+			c.logger.Info("webhook addresses already in sync", "webhook_id", webhookID, "count", len(current))
+			return nil
+		}
+	}
+
+	c.logger.Info("syncing webhook addresses",
+		"webhook_id", webhookID,
+		"current", len(current),
+		"desired", len(desired),
+	)
+
+	if err := c.UpdateWebhookAddresses(ctx, webhookID, addresses); err != nil {
+		return fmt.Errorf("failed to sync addresses: %w", err)
+	}
+
+	c.logger.Info("webhook addresses synced",
+		"webhook_id", webhookID,
+		"total_addresses", len(addresses),
+	)
+
+	return nil
+}
+
 // CreateWebhook creates a new enhanced webhook.
 func (c *Client) CreateWebhook(ctx context.Context, addresses []string) (*Webhook, error) {
 	reqBody := CreateWebhookRequest{
@@ -89,6 +146,7 @@ func (c *Client) CreateWebhook(ctx context.Context, addresses []string) (*Webhoo
 		TransactionTypes: []string{"Any"},
 		AccountAddresses: addresses,
 		WebhookType:      "enhanced",
+		TxnStatus:        "success",
 		AuthHeader:       c.authHeader,
 	}
 
@@ -184,6 +242,7 @@ func (c *Client) UpdateWebhookAddresses(ctx context.Context, webhookID string, a
 		TransactionTypes: []string{"Any"},
 		AccountAddresses: addresses,
 		WebhookType:      "enhanced",
+		TxnStatus:        "success",
 		AuthHeader:       c.authHeader,
 	}
 

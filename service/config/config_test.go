@@ -19,6 +19,9 @@ func TestLoad_ValidConfig(t *testing.T) {
 	os.Setenv("SOLANA_DEVNET_RPC_URLS", "https://api.devnet.solana.com")
 	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
+	os.Setenv("HELIUS_API_KEY", "test-helius-key")
+	os.Setenv("HELIUS_WEBHOOK_URL", "https://example.com/api/v1/webhooks/helius")
+	os.Setenv("HELIUS_WEBHOOK_AUTH_TOKEN", "Bearer test-secret")
 	defer cleanupEnv()
 
 	cfg, err := Load()
@@ -43,6 +46,9 @@ func TestLoad_MissingDatabaseURL(t *testing.T) {
 	os.Setenv("SOLANA_DEVNET_RPC_URLS", "https://api.devnet.solana.com")
 	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
+	os.Setenv("HELIUS_API_KEY", "test-helius-key")
+	os.Setenv("HELIUS_WEBHOOK_URL", "https://example.com/api/v1/webhooks/helius")
+	os.Setenv("HELIUS_WEBHOOK_AUTH_TOKEN", "Bearer test-secret")
 	defer cleanupEnv()
 
 	cfg, err := Load()
@@ -56,6 +62,9 @@ func TestLoad_MissingMainnetRPCURL(t *testing.T) {
 	os.Setenv("SOLANA_DEVNET_RPC_URLS", "https://api.devnet.solana.com")
 	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
+	os.Setenv("HELIUS_API_KEY", "test-helius-key")
+	os.Setenv("HELIUS_WEBHOOK_URL", "https://example.com/api/v1/webhooks/helius")
+	os.Setenv("HELIUS_WEBHOOK_AUTH_TOKEN", "Bearer test-secret")
 	defer cleanupEnv()
 
 	cfg, err := Load()
@@ -69,6 +78,9 @@ func TestLoad_MissingDevnetRPCURL(t *testing.T) {
 	os.Setenv("SOLANA_MAINNET_RPC_URLS", "https://api.mainnet-beta.solana.com")
 	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
+	os.Setenv("HELIUS_API_KEY", "test-helius-key")
+	os.Setenv("HELIUS_WEBHOOK_URL", "https://example.com/api/v1/webhooks/helius")
+	os.Setenv("HELIUS_WEBHOOK_AUTH_TOKEN", "Bearer test-secret")
 	defer cleanupEnv()
 
 	cfg, err := Load()
@@ -83,6 +95,9 @@ func TestLoad_InvalidPollInterval(t *testing.T) {
 	os.Setenv("SOLANA_DEVNET_RPC_URLS", "https://api.devnet.solana.com")
 	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
+	os.Setenv("HELIUS_API_KEY", "test-helius-key")
+	os.Setenv("HELIUS_WEBHOOK_URL", "https://example.com/api/v1/webhooks/helius")
+	os.Setenv("HELIUS_WEBHOOK_AUTH_TOKEN", "Bearer test-secret")
 	os.Setenv("DEFAULT_POLL_INTERVAL", "invalid")
 	defer cleanupEnv()
 
@@ -98,6 +113,9 @@ func TestLoad_MinIntervalGreaterThanDefault(t *testing.T) {
 	os.Setenv("SOLANA_DEVNET_RPC_URLS", "https://api.devnet.solana.com")
 	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
+	os.Setenv("HELIUS_API_KEY", "test-helius-key")
+	os.Setenv("HELIUS_WEBHOOK_URL", "https://example.com/api/v1/webhooks/helius")
+	os.Setenv("HELIUS_WEBHOOK_AUTH_TOKEN", "Bearer test-secret")
 	os.Setenv("DEFAULT_POLL_INTERVAL", "10s")
 	os.Setenv("MIN_POLL_INTERVAL", "30s")
 	defer cleanupEnv()
@@ -114,6 +132,9 @@ func TestLoad_CustomValues(t *testing.T) {
 	os.Setenv("SOLANA_DEVNET_RPC_URLS", "https://api.devnet.solana.com")
 	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
+	os.Setenv("HELIUS_API_KEY", "test-helius-key")
+	os.Setenv("HELIUS_WEBHOOK_URL", "https://example.com/api/v1/webhooks/helius")
+	os.Setenv("HELIUS_WEBHOOK_AUTH_TOKEN", "Bearer test-secret")
 	os.Setenv("SERVER_ADDR", ":9090")
 	os.Setenv("LOG_LEVEL", "debug")
 	os.Setenv("NATS_URL", "nats://nats.example.com:4222")
@@ -225,6 +246,9 @@ func TestMustLoad_Success(t *testing.T) {
 	os.Setenv("SOLANA_DEVNET_RPC_URLS", "https://api.devnet.solana.com")
 	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
+	os.Setenv("HELIUS_API_KEY", "test-helius-key")
+	os.Setenv("HELIUS_WEBHOOK_URL", "https://example.com/api/v1/webhooks/helius")
+	os.Setenv("HELIUS_WEBHOOK_AUTH_TOKEN", "Bearer test-secret")
 	defer cleanupEnv()
 
 	assert.NotPanics(t, func() {
@@ -241,6 +265,9 @@ func TestLoad_MultipleMainnetEndpoints(t *testing.T) {
 	os.Setenv("SOLANA_DEVNET_RPC_URLS", "https://api.devnet.solana.com")
 	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
+	os.Setenv("HELIUS_API_KEY", "test-helius-key")
+	os.Setenv("HELIUS_WEBHOOK_URL", "https://example.com/api/v1/webhooks/helius")
+	os.Setenv("HELIUS_WEBHOOK_AUTH_TOKEN", "Bearer test-secret")
 	defer cleanupEnv()
 
 	cfg, err := Load()
@@ -259,6 +286,9 @@ func TestLoad_EndpointsWithWhitespace(t *testing.T) {
 	os.Setenv("SOLANA_DEVNET_RPC_URLS", "https://api.devnet.solana.com")
 	os.Setenv("USDC_MAINNET_MINT_ADDRESS", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 	os.Setenv("USDC_DEVNET_MINT_ADDRESS", "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
+	os.Setenv("HELIUS_API_KEY", "test-helius-key")
+	os.Setenv("HELIUS_WEBHOOK_URL", "https://example.com/api/v1/webhooks/helius")
+	os.Setenv("HELIUS_WEBHOOK_AUTH_TOKEN", "Bearer test-secret")
 	defer cleanupEnv()
 
 	cfg, err := Load()
@@ -327,4 +357,7 @@ func cleanupEnv() {
 	os.Unsetenv("TEMPORAL_TASK_QUEUE")
 	os.Unsetenv("DEFAULT_POLL_INTERVAL")
 	os.Unsetenv("MIN_POLL_INTERVAL")
+	os.Unsetenv("HELIUS_API_KEY")
+	os.Unsetenv("HELIUS_WEBHOOK_URL")
+	os.Unsetenv("HELIUS_WEBHOOK_AUTH_TOKEN")
 }

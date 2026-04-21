@@ -9,6 +9,7 @@ type CreateWebhookRequest struct {
 	TransactionTypes []string `json:"transactionTypes"`
 	AccountAddresses []string `json:"accountAddresses"`
 	WebhookType      string   `json:"webhookType"`
+	TxnStatus        string   `json:"txnStatus,omitempty"`
 	AuthHeader       string   `json:"authHeader,omitempty"`
 }
 
@@ -18,6 +19,7 @@ type UpdateWebhookRequest struct {
 	TransactionTypes []string `json:"transactionTypes"`
 	AccountAddresses []string `json:"accountAddresses"`
 	WebhookType      string   `json:"webhookType"`
+	TxnStatus        string   `json:"txnStatus,omitempty"`
 	AuthHeader       string   `json:"authHeader,omitempty"`
 }
 

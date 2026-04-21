@@ -51,6 +51,29 @@ func main() {
 	}
 	logger.Info("Helius webhook integration ready", "webhook_id", heliusClient.WebhookID())
 
+	// Sync all active wallet addresses to the Helius webhook.
+	// This ensures the webhook monitors every registered wallet, even after
+	// a fresh webhook creation or if the address list drifted.
+	{
+		wallets, err := store.ListActiveWallets(ctx)
+		if err != nil {
+			logger.Error("failed to list active wallets for webhook sync", "error", err)
+			os.Exit(1)
+		}
+		var addresses []string
+		for _, w := range wallets {
+			if w.AssetType == "sol" {
+				addresses = append(addresses, w.Address)
+			} else if w.AssociatedTokenAddress != nil {
+				addresses = append(addresses, *w.AssociatedTokenAddress)
+			}
+		}
+		if err := heliusClient.SyncAddresses(ctx, addresses); err != nil {
+			logger.Error("failed to sync webhook addresses", "error", err)
+			os.Exit(1)
+		}
+	}
+
 	// NATS publisher (for webhook handler to publish transaction events)
 	natsPublisher, err := natspkg.NewPublisher(cfg.NATSURL, logger)
 	if err != nil {
