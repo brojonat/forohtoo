@@ -60,14 +60,6 @@ ORDER BY block_time ASC;
 DELETE FROM transactions
 WHERE block_time < $1;
 
--- name: GetTransactionSignaturesByWallet :many
-SELECT signature FROM transactions
-WHERE wallet_address = @wallet_address
-  AND network = @network
-  AND (@since::timestamptz IS NULL OR block_time > @since)
-ORDER BY block_time DESC
-LIMIT @limit_count;
-
 -- name: ListTransactionsByTimeRange :many
 SELECT * FROM transactions
 WHERE block_time >= @start_time::timestamptz

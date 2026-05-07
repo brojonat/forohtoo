@@ -105,24 +105,6 @@ func handleHeliusWebhook(
 			writtenTxns = append(writtenTxns, dbTxn)
 		}
 
-		// Update last poll time for affected wallets
-		walletsSeen := make(map[string]bool)
-		for _, p := range params {
-			key := p.WalletAddress + "|" + p.Network
-			if walletsSeen[key] {
-				continue
-			}
-			walletsSeen[key] = true
-
-			assetType := "sol"
-			tokenMint := ""
-			if p.TokenMint != nil {
-				assetType = "spl-token"
-				tokenMint = *p.TokenMint
-			}
-			store.UpdateWalletPollTime(r.Context(), p.WalletAddress, p.Network, assetType, tokenMint, p.BlockTime)
-		}
-
 		// Publish to NATS for SSE subscribers
 		if len(writtenTxns) > 0 && publisher != nil {
 			events := make([]*natspkg.TransactionEvent, 0, len(writtenTxns))

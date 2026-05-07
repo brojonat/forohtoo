@@ -171,7 +171,6 @@ func (s *Server) ensureServiceWalletRegistered(ctx context.Context) error {
 		AssetType:              assetType,
 		TokenMint:              tokenMint,
 		AssociatedTokenAddress: ata,
-		PollInterval:           s.cfg.DefaultPollInterval,
 		Status:                 "active",
 	})
 	if err != nil {

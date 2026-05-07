@@ -42,43 +42,20 @@ lint: ## Run linter
 build-server: ## Build HTTP server binary
 	go build -o bin/server ./cmd/server
 
-.PHONY: build-worker
-build-worker: ## Build Temporal worker binary
-	go build -o bin/worker ./cmd/worker
-
 .PHONY: build-cli
 build-cli: ## Build CLI binary
 	go build -o bin/forohtoo ./cmd/forohtoo
 
 .PHONY: build
-build: build-server build-worker build-cli ## Build all binaries
+build: build-server build-cli ## Build all binaries
 
 .PHONY: run-server
 run-server: build-server ## Build and run the HTTP server
 	./bin/server
 
-.PHONY: run-worker
-run-worker: build-worker ## Build and run the Temporal worker
-	./bin/worker
-
-.PHONY: run
-run: build ## Build and run both server and worker
-	@echo "Starting server and worker..."
-	@echo "Run 'make run-server' or 'make run-worker' to run them individually"
-	@echo "Or use tmux/docker-compose to run both simultaneously"
-
 .PHONY: run-dev-server
 run-dev-server: ## Run server with hot reload using air
 	air -c .air.server.toml
-
-.PHONY: run-dev-worker
-run-dev-worker: ## Run worker with hot reload using air
-	air -c .air.worker.toml
-
-.PHONY: run-dev
-run-dev: ## Run server and worker with hot reload using tmux
-	@echo "Starting development session with tmux..."
-	./scripts/dev.sh
 
 .PHONY: start-dev-session
 start-dev-session: run-dev ## Start tmux development session (alias for run-dev)
@@ -190,12 +167,10 @@ k8s-apply: ## Apply Kubernetes manifests (requires DOCKER_REPO and GIT_COMMIT_SH
 	@if [ -z "$(GIT_COMMIT_SHA)" ]; then echo "Error: GIT_COMMIT_SHA not set"; exit 1; fi
 	@echo "Applying Kubernetes manifests..."
 	@cat k8s/prod/server.yaml | sed 's|{{DOCKER_REPO}}|$(DOCKER_REPO)|g' | sed 's|{{GIT_COMMIT_SHA}}|$(GIT_COMMIT_SHA)|g' | kubectl apply -f -
-	@cat k8s/prod/worker.yaml | sed 's|{{DOCKER_REPO}}|$(DOCKER_REPO)|g' | sed 's|{{GIT_COMMIT_SHA}}|$(GIT_COMMIT_SHA)|g' | kubectl apply -f -
 
 .PHONY: k8s-apply-kustomize
 k8s-apply-kustomize: ## Apply Kubernetes manifests using kustomize (requires .env files)
 	@if [ ! -f .env.server.prod ]; then echo "Error: .env.server.prod not found"; exit 1; fi
-	@if [ ! -f .env.worker.prod ]; then echo "Error: .env.worker.prod not found"; exit 1; fi
 	kustomize build k8s/prod --load-restrictor LoadRestrictionsNone | kubectl apply -f -
 
 .PHONY: k8s-delete
@@ -206,26 +181,16 @@ k8s-delete: ## Delete Kubernetes resources
 k8s-logs-server: ## Show server logs
 	kubectl logs -l app=forohtoo-server -f
 
-.PHONY: k8s-logs-worker
-k8s-logs-worker: ## Show worker logs
-	kubectl logs -l app=forohtoo-worker -f
-
 .PHONY: k8s-restart-server
 k8s-restart-server: ## Restart server deployment
 	kubectl rollout restart deployment/forohtoo-server
-
-.PHONY: k8s-restart-worker
-k8s-restart-worker: ## Restart worker deployment
-	kubectl rollout restart deployment/forohtoo-worker
 
 .PHONY: k8s-status
 k8s-status: ## Show Kubernetes deployment status
 	@echo "=== Deployments ==="
 	kubectl get deployments -l app=forohtoo-server -o wide
-	kubectl get deployments -l app=forohtoo-worker -o wide
 	@echo "\n=== Pods ==="
 	kubectl get pods -l app=forohtoo-server
-	kubectl get pods -l app=forohtoo-worker
 	@echo "\n=== Services ==="
 	kubectl get services -l app=forohtoo-server
 
@@ -250,14 +215,12 @@ deploy-all: ## Full deployment: build, push, update manifests, and deploy
 	kubectl apply -f - && \
 	echo "Restarting deployments..." && \
 	kubectl rollout restart deployment/forohtoo-server && \
-	kubectl rollout restart deployment/forohtoo-worker && \
 	echo "Waiting for rollout..." && \
 	kubectl rollout status deployment/forohtoo-server && \
-	kubectl rollout status deployment/forohtoo-worker && \
 	echo "" && \
 	echo "=== Deployment Complete ===" && \
 	echo "Image: $$DOCKER_REPO/forohtoo:$$GIT_COMMIT_SHA" && \
 	echo "URL: https://forohtoo.brojonat.com" && \
 	echo "" && \
 	echo "Check status with: make k8s-status" && \
-	echo "Check logs with: make k8s-logs-server or make k8s-logs-worker"
+	echo "Check logs with: make k8s-logs-server"

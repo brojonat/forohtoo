@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const defaultBaseURL = "https://api.helius.dev/v0"
+const defaultBaseURL = "https://api-mainnet.helius-rpc.com/v0"
 
 // Client manages Helius webhooks via the Helius API.
 // It maintains a single webhook and adds/removes account addresses
@@ -60,7 +60,9 @@ func (c *Client) EnsureWebhooks(ctx context.Context) error {
 		// If we find an existing one, reuse it.
 		if c.mainnetWebhookID == "" {
 			c.mainnetWebhookID = wh.WebhookID
-			c.logger.Info("found existing Helius webhook", "webhook_id", wh.WebhookID, "addresses", len(wh.AccountAddresses))
+			// The LIST endpoint doesn't populate accountAddresses; SyncAddresses
+			// logs the real count after a follow-up GET.
+			c.logger.Info("found existing Helius webhook", "webhook_id", wh.WebhookID)
 		}
 	}
 

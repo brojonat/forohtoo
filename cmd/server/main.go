@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	forohtooclient "github.com/brojonat/forohtoo/client"
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
 	"github.com/brojonat/forohtoo/service/helius"
@@ -43,7 +44,7 @@ func main() {
 	// Prometheus metrics
 	metricsCollector := metrics.NewMetrics(nil)
 
-	// Helius webhook client (primary ingestion path)
+	// Helius webhook client - the sole transaction ingestion path.
 	heliusClient := helius.NewClient(cfg.HeliusAPIKey, cfg.HeliusWebhookURL, cfg.HeliusWebhookAuthToken, logger)
 	if err := heliusClient.EnsureWebhooks(ctx); err != nil {
 		logger.Error("failed to initialize Helius webhooks", "error", err)
@@ -51,9 +52,8 @@ func main() {
 	}
 	logger.Info("Helius webhook integration ready", "webhook_id", heliusClient.WebhookID())
 
-	// Sync all active wallet addresses to the Helius webhook.
-	// This ensures the webhook monitors every registered wallet, even after
-	// a fresh webhook creation or if the address list drifted.
+	// Sync all active wallet addresses to the Helius webhook so a fresh deploy
+	// or recreated webhook still monitors every registered wallet.
 	{
 		wallets, err := store.ListActiveWallets(ctx)
 		if err != nil {
@@ -74,7 +74,7 @@ func main() {
 		}
 	}
 
-	// NATS publisher (for webhook handler to publish transaction events)
+	// NATS publisher (webhook handler -> NATS -> SSE subscribers).
 	natsPublisher, err := natspkg.NewPublisher(cfg.NATSURL, logger)
 	if err != nil {
 		logger.Error("failed to create NATS publisher", "error", err)
@@ -82,7 +82,6 @@ func main() {
 	}
 	defer natsPublisher.Close()
 
-	// SSE publisher (for streaming to clients)
 	ssePublisher, err := server.NewSSEPublisher(cfg.NATSURL, store, logger)
 	if err != nil {
 		logger.Error("failed to create SSE publisher", "error", err)
@@ -90,8 +89,10 @@ func main() {
 	}
 	defer ssePublisher.Close()
 
-	// Temporal client (only needed for payment gateway workflows)
+	// Temporal client + in-process worker for the payment-gated registration
+	// workflow. Only spun up when the payment gateway is enabled.
 	var temporalClient *temporal.Client
+	var temporalWorker *temporal.Worker
 	if cfg.PaymentGateway.Enabled {
 		tc, err := temporal.NewClient(cfg.TemporalHost, cfg.TemporalNamespace, cfg.TemporalTaskQueue, logger)
 		if err != nil {
@@ -100,7 +101,31 @@ func main() {
 		}
 		defer tc.Close()
 		temporalClient = tc
-		logger.Info("temporal client ready (payment gateway)")
+
+		// The payment workflow's AwaitPayment activity hits the SSE endpoint of
+		// this same server, so the client URL is just our own listen address.
+		forohtooClient := forohtooclient.NewClient("http://localhost"+cfg.ServerAddr, nil, logger)
+
+		w, err := temporal.NewWorker(temporal.WorkerConfig{
+			TemporalHost:      cfg.TemporalHost,
+			TemporalNamespace: cfg.TemporalNamespace,
+			TaskQueue:         cfg.TemporalTaskQueue,
+			Store:             store,
+			HeliusClient:      heliusClient,
+			ForohtooClient:    forohtooClient,
+			Metrics:           metricsCollector,
+			Logger:            logger,
+		})
+		if err != nil {
+			logger.Error("failed to create temporal worker", "error", err)
+			os.Exit(1)
+		}
+		if err := w.Start(); err != nil {
+			logger.Error("failed to start temporal worker", "error", err)
+			os.Exit(1)
+		}
+		temporalWorker = w
+		logger.Info("payment-gateway temporal worker running")
 	}
 
 	httpServer := server.New(cfg.ServerAddr, cfg, store, temporalClient, heliusClient, natsPublisher, ssePublisher, metricsCollector, logger)
@@ -120,9 +145,15 @@ func main() {
 	select {
 	case err := <-serverErrors:
 		logger.Error("HTTP server error", "error", err)
+		if temporalWorker != nil {
+			temporalWorker.Stop()
+		}
 		os.Exit(1)
 	case sig := <-shutdown:
 		logger.Info("shutdown signal received", "signal", sig.String())
+		if temporalWorker != nil {
+			temporalWorker.Stop()
+		}
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer shutdownCancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {

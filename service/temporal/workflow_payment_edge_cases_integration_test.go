@@ -57,7 +57,6 @@ func TestPaymentGatedRegistrationWorkflow_WalletAlreadyExists_Integration(t *tes
 		AssetType:              "spl-token",
 		TokenMint:              tokenMint,
 		AssociatedTokenAddress: &ataAddr,
-		PollInterval:           1 * time.Minute,
 		Status:                 "active",
 	})
 	require.NoError(t, err)
@@ -83,7 +82,6 @@ func TestPaymentGatedRegistrationWorkflow_WalletAlreadyExists_Integration(t *tes
 		AssetType:              "spl-token",
 		TokenMint:              tokenMint,
 		AssociatedTokenAddress: &ataAddr,
-		PollInterval:           1 * time.Minute,
 		ServiceWallet:          cfg.PaymentGateway.ServiceWallet,
 		ServiceNetwork:         cfg.PaymentGateway.ServiceNetwork,
 		FeeAmount:              cfg.PaymentGateway.FeeAmount,
@@ -165,7 +163,6 @@ func TestPaymentGatedRegistrationWorkflow_ConcurrentRegistrations_Integration(t 
 			AssetType:              "spl-token",
 			TokenMint:              tokenMint,
 			AssociatedTokenAddress: &ataAddr,
-			PollInterval:           1 * time.Minute,
 			ServiceWallet:          cfg.PaymentGateway.ServiceWallet,
 			ServiceNetwork:         cfg.PaymentGateway.ServiceNetwork,
 			FeeAmount:              cfg.PaymentGateway.FeeAmount,

@@ -55,16 +55,17 @@ func listWalletsCommand() *cli.Command {
 
 			// Pretty table output
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ADDRESS\tSTATUS\tLAST POLL\tCREATED")
+			fmt.Fprintln(w, "ADDRESS\tNETWORK\tASSET\tSTATUS\tCREATED")
 			for _, wallet := range wallets {
-				lastPoll := "never"
-				if wallet.LastPollTime != nil {
-					lastPoll = wallet.LastPollTime.Format(time.RFC3339)
+				asset := wallet.AssetType
+				if wallet.TokenMint != "" {
+					asset = wallet.AssetType + ":" + wallet.TokenMint
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 					wallet.Address,
+					wallet.Network,
+					asset,
 					wallet.Status,
-					lastPoll,
 					wallet.CreatedAt.Format(time.RFC3339),
 				)
 			}
@@ -132,12 +133,11 @@ func getWalletCommand() *cli.Command {
 			// Pretty output
 			fmt.Printf("Address:       %s\n", wallet.Address)
 			fmt.Printf("Network:       %s\n", wallet.Network)
-			fmt.Printf("Status:        %s\n", wallet.Status)
-			if wallet.LastPollTime != nil {
-				fmt.Printf("Last Poll:     %s\n", wallet.LastPollTime.Format(time.RFC3339))
-			} else {
-				fmt.Printf("Last Poll:     never\n")
+			fmt.Printf("Asset Type:    %s\n", wallet.AssetType)
+			if wallet.TokenMint != "" {
+				fmt.Printf("Token Mint:    %s\n", wallet.TokenMint)
 			}
+			fmt.Printf("Status:        %s\n", wallet.Status)
 			fmt.Printf("Created:       %s\n", wallet.CreatedAt.Format(time.RFC3339))
 			fmt.Printf("Updated:       %s\n", wallet.UpdatedAt.Format(time.RFC3339))
 

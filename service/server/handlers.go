@@ -231,7 +231,6 @@ func handleRegisterWalletAsset(store *db.Store, heliusClient *helius.Client, tem
 				AssetType:              req.Asset.Type,
 				TokenMint:              tokenMint,
 				AssociatedTokenAddress: ata,
-				PollInterval:           cfg.DefaultPollInterval,
 				ServiceWallet:          cfg.PaymentGateway.ServiceWallet,
 				ServiceNetwork:         cfg.PaymentGateway.ServiceNetwork,
 				FeeAmount:              cfg.PaymentGateway.FeeAmount,
@@ -278,7 +277,6 @@ func handleRegisterWalletAsset(store *db.Store, heliusClient *helius.Client, tem
 			AssetType:              req.Asset.Type,
 			TokenMint:              tokenMint,
 			AssociatedTokenAddress: ata,
-			PollInterval:           cfg.DefaultPollInterval,
 			Status:                 "active",
 		}
 
@@ -456,16 +454,14 @@ func handleGetRegistrationStatus(temporalClient *temporal.Client, logger *slog.L
 
 // walletResponse is the JSON response format for a wallet asset.
 type walletResponse struct {
-	Address                string     `json:"address"`
-	Network                string     `json:"network"`
-	AssetType              string     `json:"asset_type"` // "sol" or "spl-token"
-	TokenMint              string     `json:"token_mint"` // empty for SOL, mint address for SPL tokens
-	AssociatedTokenAddress *string    `json:"associated_token_address,omitempty"`
-	PollInterval           string     `json:"poll_interval"` // duration string like "30s", "1m", etc
-	LastPollTime           *time.Time `json:"last_poll_time,omitempty"`
-	Status                 string     `json:"status"`
-	CreatedAt              time.Time  `json:"created_at"`
-	UpdatedAt              time.Time  `json:"updated_at"`
+	Address                string    `json:"address"`
+	Network                string    `json:"network"`
+	AssetType              string    `json:"asset_type"`
+	TokenMint              string    `json:"token_mint"`
+	AssociatedTokenAddress *string   `json:"associated_token_address,omitempty"`
+	Status                 string    `json:"status"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 // walletToResponse converts a domain Wallet to a response format.
@@ -476,8 +472,6 @@ func walletToResponse(w *db.Wallet) walletResponse {
 		AssetType:              w.AssetType,
 		TokenMint:              w.TokenMint,
 		AssociatedTokenAddress: w.AssociatedTokenAddress,
-		PollInterval:           w.PollInterval.String(),
-		LastPollTime:           w.LastPollTime,
 		Status:                 w.Status,
 		CreatedAt:              w.CreatedAt,
 		UpdatedAt:              w.UpdatedAt,

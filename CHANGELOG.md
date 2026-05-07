@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **Polling worker and infrastructure**. Transaction ingestion is now exclusively
+  driven by the Helius enhanced webhook. The standalone Temporal polling worker
+  (`cmd/worker`), the `PollWalletWorkflow`, the `PollSolana` /
+  `GetExistingTransactionSignatures` / `WriteTransactions` activities, the
+  Temporal schedule-management methods, the `service/solana` package, and all
+  associated CLI subcommands and Kubernetes manifests have been deleted.
+- `poll_interval` and `last_poll_time` columns on the `wallets` table (migration
+  `007_drop_poll_columns`). The corresponding fields are gone from the API
+  response, the client SDK, and the CLI.
+- `SOLANA_MAINNET_RPC_URLS`, `SOLANA_DEVNET_RPC_URLS`, `DEFAULT_POLL_INTERVAL`,
+  `MIN_POLL_INTERVAL`, and `FOROHTOO_SERVER_URL` environment variables.
+
+### Changed
+- The Temporal worker for `PaymentGatedRegistrationWorkflow` now runs in-process
+  inside `cmd/server` (only when `PAYMENT_GATEWAY_ENABLED=true`); there is no
+  longer a separate worker deployment.
+- `RegisterWallet` activity now adds the monitored address to the Helius webhook
+  instead of creating a Temporal polling schedule. Rollback path now deletes the
+  wallet on Helius API failure.
+
+### Fixed
+- Helius API base URL was set to a non-resolving hostname (`api.helius.dev`),
+  which would have crashed the server at startup on `EnsureWebhooks`. Switched
+  to the canonical `api-mainnet.helius-rpc.com` per Helius's current docs.
+- Misleading `addresses: 0` log line on startup. The Helius LIST endpoint
+  doesn't populate `accountAddresses`; the real count is logged by the
+  follow-up `SyncAddresses` call.
+
 ### Added
+- `forohtoo helius` CLI subcommand for managing the Helius webhook from the
+  command line: `list`, `show`, `diff` (DB ↔ webhook reconciliation, exits
+  non-zero on drift — usable as a deploy precondition), and `sync [--dry-run]`.
+- `LEARNINGS.md` documenting the Helius hostname gotcha and how to avoid
+  similar third-party-API typos in the future.
 - **Lookback parameter for transaction streaming**: `Await` method and SSE streaming now support configurable historical transaction retrieval
   - New `lookback` duration parameter allows fetching historical transactions before streaming live events
   - Historical events limited to 1000 maximum for performance

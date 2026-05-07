@@ -11,12 +11,11 @@ import (
 // PaymentGatedRegistrationInput contains input for payment-gated registration.
 type PaymentGatedRegistrationInput struct {
 	// Wallet to register
-	Address                string        `json:"address"`
-	Network                string        `json:"network"`
-	AssetType              string        `json:"asset_type"`
-	TokenMint              string        `json:"token_mint"`
-	AssociatedTokenAddress *string       `json:"associated_token_address"`
-	PollInterval           time.Duration `json:"poll_interval"`
+	Address                string  `json:"address"`
+	Network                string  `json:"network"`
+	AssetType              string  `json:"asset_type"`
+	TokenMint              string  `json:"token_mint"`
+	AssociatedTokenAddress *string `json:"associated_token_address"`
 
 	// Payment details
 	ServiceWallet  string        `json:"service_wallet"`  // Forohtoo's wallet
@@ -41,8 +40,8 @@ type PaymentGatedRegistrationResult struct {
 
 // PaymentGatedRegistrationWorkflow handles wallet registration with payment gating.
 // This workflow:
-// 1. Waits for payment via AwaitPayment activity (uses client.Await)
-// 2. Registers the wallet and creates Temporal schedule
+// 1. Waits for payment via AwaitPayment activity (uses client.Await over SSE)
+// 2. Registers the wallet and adds it to the Helius webhook
 // 3. Returns registration confirmation
 func PaymentGatedRegistrationWorkflow(ctx workflow.Context, input PaymentGatedRegistrationInput) (*PaymentGatedRegistrationResult, error) {
 	logger := workflow.GetLogger(ctx)
@@ -106,7 +105,6 @@ func PaymentGatedRegistrationWorkflow(ctx workflow.Context, input PaymentGatedRe
 		AssetType:              input.AssetType,
 		TokenMint:              input.TokenMint,
 		AssociatedTokenAddress: input.AssociatedTokenAddress,
-		PollInterval:           input.PollInterval,
 	}
 
 	var registerResult *RegisterWalletResult

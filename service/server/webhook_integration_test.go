@@ -56,7 +56,6 @@ func TestWebhookIntegration_EndToEnd(t *testing.T) {
 		Network:      "mainnet",
 		AssetType:    "sol",
 		TokenMint:    "",
-		PollInterval: 30 * time.Second,
 		Status:       "active",
 	})
 	require.NoError(t, err)
@@ -176,7 +175,6 @@ func TestWebhookIntegration_SPLToken(t *testing.T) {
 		AssetType:              "spl-token",
 		TokenMint:              usdcMint,
 		AssociatedTokenAddress: &ataAddr,
-		PollInterval:           30 * time.Second,
 		Status:                 "active",
 	})
 	require.NoError(t, err)
@@ -278,7 +276,6 @@ func TestWebhookIntegration_BatchMultipleTransactions(t *testing.T) {
 		Network:      "mainnet",
 		AssetType:    "sol",
 		TokenMint:    "",
-		PollInterval: 30 * time.Second,
 		Status:       "active",
 	})
 	require.NoError(t, err)

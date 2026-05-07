@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
@@ -21,7 +20,6 @@ func TestCreateWallet(t *testing.T) {
 	params := CreateWalletParams{
 		Address:      "wallet123",
 		Network:      "mainnet",
-		PollInterval: 30 * time.Second,
 		Status:       "active",
 	}
 
@@ -31,9 +29,7 @@ func TestCreateWallet(t *testing.T) {
 
 	assert.Equal(t, params.Address, wallet.Address)
 	assert.Equal(t, params.Network, wallet.Network)
-	assert.Equal(t, params.PollInterval, wallet.PollInterval)
 	assert.Equal(t, params.Status, wallet.Status)
-	assert.Nil(t, wallet.LastPollTime)
 	assert.False(t, wallet.CreatedAt.IsZero())
 	assert.False(t, wallet.UpdatedAt.IsZero())
 }
@@ -49,7 +45,6 @@ func TestCreateWallet_DuplicateAddress(t *testing.T) {
 	params := CreateWalletParams{
 		Address:      "wallet123",
 		Network:      "mainnet",
-		PollInterval: 30 * time.Second,
 		Status:       "active",
 	}
 
@@ -66,7 +61,6 @@ func TestCreateWallet_DuplicateAddress(t *testing.T) {
 	paramsDevnet := CreateWalletParams{
 		Address:      "wallet123",
 		Network:      "devnet",
-		PollInterval: 30 * time.Second,
 		Status:       "active",
 	}
 	_, err = store.CreateWallet(ctx, paramsDevnet)
@@ -86,7 +80,6 @@ func TestGetWallet(t *testing.T) {
 	created, err := store.CreateWallet(ctx, CreateWalletParams{
 		Address:      "wallet456",
 		Network:      "mainnet",
-		PollInterval: 30 * time.Second,
 		Status:       "active",
 	})
 	require.NoError(t, err)
@@ -127,9 +120,9 @@ func TestListWallets(t *testing.T) {
 
 	// Create multiple wallets on different networks
 	wallets := []CreateWalletParams{
-		{Address: "wallet1", Network: "mainnet", PollInterval: 30 * time.Second, Status: "active"},
-		{Address: "wallet2", Network: "mainnet", PollInterval: 30 * time.Second, Status: "active"},
-		{Address: "wallet1", Network: "devnet", PollInterval: 30 * time.Second, Status: "active"},
+		{Address: "wallet1", Network: "mainnet", Status: "active"},
+		{Address: "wallet2", Network: "mainnet", Status: "active"},
+		{Address: "wallet1", Network: "devnet", Status: "active"},
 	}
 	for _, params := range wallets {
 		_, err := store.CreateWallet(ctx, params)
@@ -173,7 +166,6 @@ func TestListActiveWallets(t *testing.T) {
 	_, err := store.CreateWallet(ctx, CreateWalletParams{
 		Address:      "active1",
 		Network:      "mainnet",
-		PollInterval: 30 * time.Second,
 		Status:       "active",
 	})
 	require.NoError(t, err)
@@ -181,7 +173,6 @@ func TestListActiveWallets(t *testing.T) {
 	_, err = store.CreateWallet(ctx, CreateWalletParams{
 		Address:      "active2",
 		Network:      "devnet",
-		PollInterval: 30 * time.Second,
 		Status:       "active",
 	})
 	require.NoError(t, err)
@@ -190,7 +181,6 @@ func TestListActiveWallets(t *testing.T) {
 	_, err = store.CreateWallet(ctx, CreateWalletParams{
 		Address:      "paused1",
 		Network:      "mainnet",
-		PollInterval: 30 * time.Second,
 		Status:       "paused",
 	})
 	require.NoError(t, err)
@@ -206,37 +196,6 @@ func TestListActiveWallets(t *testing.T) {
 	}
 }
 
-func TestUpdateWalletPollTime(t *testing.T) {
-	SkipIfNoTestDB(t)
-
-	store := NewTestStore(t)
-	defer store.Close()
-	defer store.Cleanup(t)
-
-	ctx := context.Background()
-
-	// Create wallet
-	wallet, err := store.CreateWallet(ctx, CreateWalletParams{
-		Address:      "wallet789",
-		Network:      "mainnet",
-		PollInterval: 30 * time.Second,
-		Status:       "active",
-	})
-	require.NoError(t, err)
-	assert.Nil(t, wallet.LastPollTime)
-
-	// Update poll time
-	now := time.Now()
-	updated, err := store.UpdateWalletPollTime(ctx, "wallet789", "mainnet", "", "", now)
-	require.NoError(t, err)
-	require.NotNil(t, updated.LastPollTime)
-
-	assert.Equal(t, "wallet789", updated.Address)
-	assert.Equal(t, "mainnet", updated.Network)
-	assert.WithinDuration(t, now, *updated.LastPollTime, time.Second)
-	assert.True(t, updated.UpdatedAt.After(wallet.UpdatedAt))
-}
-
 func TestUpdateWalletStatus(t *testing.T) {
 	SkipIfNoTestDB(t)
 
@@ -250,7 +209,6 @@ func TestUpdateWalletStatus(t *testing.T) {
 	wallet, err := store.CreateWallet(ctx, CreateWalletParams{
 		Address:      "wallet999",
 		Network:      "mainnet",
-		PollInterval: 30 * time.Second,
 		Status:       "active",
 	})
 	require.NoError(t, err)
@@ -281,7 +239,6 @@ func TestDeleteWallet(t *testing.T) {
 	_, err := store.CreateWallet(ctx, CreateWalletParams{
 		Address:      "wallet111",
 		Network:      "mainnet",
-		PollInterval: 30 * time.Second,
 		Status:       "active",
 	})
 	require.NoError(t, err)
@@ -329,7 +286,6 @@ func TestWalletExists(t *testing.T) {
 	_, err = store.CreateWallet(ctx, CreateWalletParams{
 		Address:      "wallet222",
 		Network:      "mainnet",
-		PollInterval: 30 * time.Second,
 		Status:       "active",
 	})
 	require.NoError(t, err)
