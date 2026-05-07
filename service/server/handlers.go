@@ -12,6 +12,7 @@ import (
 
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
+	"github.com/brojonat/forohtoo/service/helius"
 	"github.com/brojonat/forohtoo/service/temporal"
 	solanago "github.com/gagliardetto/solana-go"
 	"go.temporal.io/sdk/client"
@@ -104,10 +105,10 @@ func handleListWalletAssets(store *db.Store, logger *slog.Logger) http.Handler {
 }
 
 // handleRegisterWalletAsset returns a handler that registers a new wallet+asset
-// and creates a Temporal schedule for polling.
+// and adds it to the Helius webhook for monitoring.
 // With payment gateway enabled, new wallets require payment first.
 // POST /api/v1/wallet-assets
-func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client, cfg *config.Config, logger *slog.Logger) http.Handler {
+func handleRegisterWalletAsset(store *db.Store, heliusClient *helius.Client, temporalClient *temporal.Client, cfg *config.Config, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Limit request body size to prevent memory exhaustion
 		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
@@ -230,7 +231,6 @@ func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client,
 				AssetType:              req.Asset.Type,
 				TokenMint:              tokenMint,
 				AssociatedTokenAddress: ata,
-				PollInterval:           cfg.DefaultPollInterval,
 				ServiceWallet:          cfg.PaymentGateway.ServiceWallet,
 				ServiceNetwork:         cfg.PaymentGateway.ServiceNetwork,
 				FeeAmount:              cfg.PaymentGateway.FeeAmount,
@@ -277,7 +277,6 @@ func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client,
 			AssetType:              req.Asset.Type,
 			TokenMint:              tokenMint,
 			AssociatedTokenAddress: ata,
-			PollInterval:           cfg.DefaultPollInterval,
 			Status:                 "active",
 		}
 
@@ -288,20 +287,25 @@ func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client,
 			return
 		}
 
-		// Upsert Temporal schedule (create or update if exists)
-		if err := temporalClient.UpsertWalletAssetSchedule(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint, ata, cfg.DefaultPollInterval); err != nil {
-			logger.Error("failed to upsert schedule", "address", req.Address, "network", req.Network, "error", err)
-
-			// Rollback: delete the wallet asset we just created/updated
-			if delErr := store.DeleteWallet(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint); delErr != nil {
-				logger.Error("failed to rollback wallet asset upsert", "address", req.Address, "network", req.Network, "error", delErr)
+		// Add the monitored address to the Helius webhook
+		if heliusClient != nil {
+			monitorAddr := req.Address
+			if ata != nil {
+				monitorAddr = *ata
 			}
+			if err := heliusClient.AddAddress(r.Context(), monitorAddr); err != nil {
+				logger.Error("failed to add address to Helius webhook", "address", monitorAddr, "error", err)
 
-			writeError(w, "failed to upsert schedule for wallet asset", http.StatusInternalServerError)
-			return
+				if delErr := store.DeleteWallet(r.Context(), req.Address, req.Network, req.Asset.Type, tokenMint); delErr != nil {
+					logger.Error("failed to rollback wallet asset upsert", "address", req.Address, "error", delErr)
+				}
+
+				writeError(w, "failed to add address to webhook", http.StatusInternalServerError)
+				return
+			}
 		}
 
-		logger.Info("wallet asset upserted with schedule",
+		logger.Info("wallet asset registered",
 			"address", wallet.Address,
 			"network", req.Network,
 			"asset_type", req.Asset.Type,
@@ -315,77 +319,63 @@ func handleRegisterWalletAsset(store *db.Store, temporalClient *temporal.Client,
 }
 
 // handleUnregisterWalletAsset returns a handler that unregisters a wallet+asset
-// and deletes its Temporal schedule.
+// and removes it from the Helius webhook.
 // DELETE /api/v1/wallet-assets/{address}?network={network}&asset_type={type}&token_mint={mint}
-func handleUnregisterWalletAsset(store *db.Store, temporalClient *temporal.Client, logger *slog.Logger) http.Handler {
+func handleUnregisterWalletAsset(store *db.Store, heliusClient *helius.Client, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		address := r.PathValue("address")
 		network := r.URL.Query().Get("network")
 		assetType := r.URL.Query().Get("asset_type")
 		tokenMint := r.URL.Query().Get("token_mint")
 
-		// Validate address format
 		if err := validateAddress(address); err != nil {
-			logger.Debug("invalid address", "address", address, "error", err)
 			writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-
-		// Validate network
 		if err := validateNetwork(network); err != nil {
-			logger.Debug("invalid network", "network", network, "error", err)
 			writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-
-		// Validate asset type
 		if err := validateAssetType(assetType); err != nil {
-			logger.Debug("invalid asset type", "type", assetType, "error", err)
 			writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-
-		// Normalize token mint (empty for SOL)
 		if assetType == "sol" {
 			tokenMint = ""
 		}
 
-		// Check if wallet asset exists
 		exists, err := store.WalletExists(r.Context(), address, network, assetType, tokenMint)
 		if err != nil {
-			logger.Error("failed to check wallet asset existence", "address", address, "network", network, "error", err)
 			writeError(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-
 		if !exists {
 			writeError(w, "wallet asset not found", http.StatusNotFound)
 			return
 		}
 
-		// Delete Temporal schedule first (before DB)
-		// If this fails, we don't want to delete the wallet asset from DB
-		if err := temporalClient.DeleteWalletAssetSchedule(r.Context(), address, network, assetType, tokenMint); err != nil {
-			logger.Error("failed to delete schedule", "address", address, "network", network, "error", err)
-			writeError(w, "failed to delete schedule for wallet asset", http.StatusInternalServerError)
-			return
+		// Remove address from Helius webhook
+		if heliusClient != nil {
+			monitorAddr := address
+			if assetType == "spl-token" && tokenMint != "" {
+				if ataAddr, err := computeAssociatedTokenAddress(address, tokenMint); err == nil {
+					monitorAddr = ataAddr
+				}
+			}
+			if err := heliusClient.RemoveAddress(r.Context(), monitorAddr); err != nil {
+				logger.Error("failed to remove address from Helius webhook", "address", monitorAddr, "error", err)
+				writeError(w, "failed to remove address from webhook", http.StatusInternalServerError)
+				return
+			}
 		}
 
-		// Delete wallet asset from database
 		if err := store.DeleteWallet(r.Context(), address, network, assetType, tokenMint); err != nil {
-			logger.Error("failed to delete wallet asset", "address", address, "network", network, "error", err)
-			// Schedule is already deleted but DB deletion failed
-			// This is an inconsistent state, but schedule can be cleaned up by reconciliation
+			logger.Error("failed to delete wallet asset", "address", address, "error", err)
 			writeError(w, "failed to unregister wallet asset", http.StatusInternalServerError)
 			return
 		}
 
-		logger.Info("wallet asset unregistered with schedule",
-			"address", address,
-			"network", network,
-			"asset_type", assetType,
-			"token_mint", tokenMint,
-		)
+		logger.Info("wallet asset unregistered", "address", address, "network", network, "asset_type", assetType)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
@@ -464,16 +454,14 @@ func handleGetRegistrationStatus(temporalClient *temporal.Client, logger *slog.L
 
 // walletResponse is the JSON response format for a wallet asset.
 type walletResponse struct {
-	Address                string     `json:"address"`
-	Network                string     `json:"network"`
-	AssetType              string     `json:"asset_type"` // "sol" or "spl-token"
-	TokenMint              string     `json:"token_mint"` // empty for SOL, mint address for SPL tokens
-	AssociatedTokenAddress *string    `json:"associated_token_address,omitempty"`
-	PollInterval           string     `json:"poll_interval"` // duration string like "30s", "1m", etc
-	LastPollTime           *time.Time `json:"last_poll_time,omitempty"`
-	Status                 string     `json:"status"`
-	CreatedAt              time.Time  `json:"created_at"`
-	UpdatedAt              time.Time  `json:"updated_at"`
+	Address                string    `json:"address"`
+	Network                string    `json:"network"`
+	AssetType              string    `json:"asset_type"`
+	TokenMint              string    `json:"token_mint"`
+	AssociatedTokenAddress *string   `json:"associated_token_address,omitempty"`
+	Status                 string    `json:"status"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 // walletToResponse converts a domain Wallet to a response format.
@@ -484,8 +472,6 @@ func walletToResponse(w *db.Wallet) walletResponse {
 		AssetType:              w.AssetType,
 		TokenMint:              w.TokenMint,
 		AssociatedTokenAddress: w.AssociatedTokenAddress,
-		PollInterval:           w.PollInterval.String(),
-		LastPollTime:           w.LastPollTime,
 		Status:                 w.Status,
 		CreatedAt:              w.CreatedAt,
 		UpdatedAt:              w.UpdatedAt,
@@ -619,15 +605,22 @@ func computeAssociatedTokenAddress(walletAddress string, tokenMint string) (stri
 }
 
 // handleListTransactions returns a handler that lists transactions for a specific wallet.
-// GET /api/v1/transactions?wallet_address=ADDRESS&limit=N&offset=N
+// GET /api/v1/transactions?wallet_address=ADDRESS&network=NETWORK&limit=N&offset=N
 func handleListTransactions(store *db.Store, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
 		walletAddress := query.Get("wallet_address")
+		network := query.Get("network")
 
 		// wallet_address is required
 		if walletAddress == "" {
 			writeError(w, "wallet_address query parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		// network is required
+		if err := validateNetwork(network); err != nil {
+			writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -675,6 +668,7 @@ func handleListTransactions(store *db.Store, logger *slog.Logger) http.Handler {
 		// Query transactions
 		transactions, err := store.ListTransactionsByWallet(r.Context(), db.ListTransactionsByWalletParams{
 			WalletAddress: walletAddress,
+			Network:       network,
 			Limit:         limit,
 			Offset:        offset,
 		})
@@ -684,7 +678,7 @@ func handleListTransactions(store *db.Store, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		logger.Debug("transactions listed", "wallet", walletAddress, "count", len(transactions))
+		logger.Debug("transactions listed", "wallet", walletAddress, "network", network, "count", len(transactions))
 
 		// Convert to response format
 		resp := make([]transactionResponse, len(transactions))

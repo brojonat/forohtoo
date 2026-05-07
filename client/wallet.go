@@ -16,16 +16,14 @@ import (
 
 // Wallet represents a registered wallet+asset that the server is monitoring.
 type Wallet struct {
-	Address                string        `json:"address"`
-	Network                string        `json:"network"` // "mainnet" or "devnet"
-	AssetType              string        `json:"asset_type"`
-	TokenMint              string        `json:"token_mint"`
-	AssociatedTokenAddress *string       `json:"associated_token_address,omitempty"`
-	PollInterval           time.Duration `json:"poll_interval"`
-	LastPollTime           *time.Time    `json:"last_poll_time,omitempty"`
-	Status                 string        `json:"status"` // active, paused, error
-	CreatedAt              time.Time     `json:"created_at"`
-	UpdatedAt              time.Time     `json:"updated_at"`
+	Address                string    `json:"address"`
+	Network                string    `json:"network"` // "mainnet" or "devnet"
+	AssetType              string    `json:"asset_type"`
+	TokenMint              string    `json:"token_mint"`
+	AssociatedTokenAddress *string   `json:"associated_token_address,omitempty"`
+	Status                 string    `json:"status"` // active, paused, error
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 // Client is the HTTP client for the forohtoo wallet service.
@@ -196,34 +194,24 @@ func (c *Client) List(ctx context.Context) ([]*Wallet, error) {
 
 // walletResponse is the API response format for a wallet asset.
 type walletResponse struct {
-	Address                string     `json:"address"`
-	Network                string     `json:"network"`
-	AssetType              string     `json:"asset_type"`
-	TokenMint              string     `json:"token_mint"`
-	AssociatedTokenAddress *string    `json:"associated_token_address,omitempty"`
-	PollInterval           string     `json:"poll_interval"`
-	LastPollTime           *time.Time `json:"last_poll_time,omitempty"`
-	Status                 string     `json:"status"`
-	CreatedAt              time.Time  `json:"created_at"`
-	UpdatedAt              time.Time  `json:"updated_at"`
+	Address                string    `json:"address"`
+	Network                string    `json:"network"`
+	AssetType              string    `json:"asset_type"`
+	TokenMint              string    `json:"token_mint"`
+	AssociatedTokenAddress *string   `json:"associated_token_address,omitempty"`
+	Status                 string    `json:"status"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 // responseToWallet converts an API response to a domain Wallet.
 func responseToWallet(resp *walletResponse) (*Wallet, error) {
-	// Parse poll_interval string to duration
-	pollInterval, err := time.ParseDuration(resp.PollInterval)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse poll_interval: %w", err)
-	}
-
 	return &Wallet{
 		Address:                resp.Address,
 		Network:                resp.Network,
 		AssetType:              resp.AssetType,
 		TokenMint:              resp.TokenMint,
 		AssociatedTokenAddress: resp.AssociatedTokenAddress,
-		PollInterval:           pollInterval,
-		LastPollTime:           resp.LastPollTime,
 		Status:                 resp.Status,
 		CreatedAt:              resp.CreatedAt,
 		UpdatedAt:              resp.UpdatedAt,

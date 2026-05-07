@@ -108,22 +108,6 @@ func (s *Store) GetTransaction(ctx context.Context, signature string, network st
 	return dbTransactionToDomain(&result), nil
 }
 
-// GetTransactionSignaturesByWallet retrieves transaction signatures for a wallet.
-// Limit controls the maximum number of signatures returned (ordered by most recent first).
-func (s *Store) GetTransactionSignaturesByWallet(ctx context.Context, walletAddress string, network string, since *time.Time, limit int32) ([]string, error) {
-	var sinceVal pgtype.Timestamptz
-	if since != nil {
-		sinceVal = pgtype.Timestamptz{Time: *since, Valid: true}
-	}
-	arg := dbgen.GetTransactionSignaturesByWalletParams{
-		WalletAddress: walletAddress,
-		Network:       network,
-		Since:         sinceVal,
-		LimitCount:    limit,
-	}
-	return s.q.GetTransactionSignaturesByWallet(ctx, arg)
-}
-
 // ListTransactionsByWallet retrieves transactions for a wallet with pagination.
 func (s *Store) ListTransactionsByWallet(ctx context.Context, params ListTransactionsByWalletParams) ([]*Transaction, error) {
 	sqlcParams := dbgen.ListTransactionsByWalletParams{
@@ -241,8 +225,6 @@ type Wallet struct {
 	AssetType              string  // "sol" or "spl-token"
 	TokenMint              string  // empty for SOL, mint address for SPL tokens
 	AssociatedTokenAddress *string // nil for SOL, ATA for SPL tokens
-	PollInterval           time.Duration
-	LastPollTime           *time.Time
 	Status                 string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
@@ -255,7 +237,6 @@ type CreateWalletParams struct {
 	AssetType              string
 	TokenMint              string
 	AssociatedTokenAddress *string
-	PollInterval           time.Duration
 	Status                 string
 }
 
@@ -266,7 +247,6 @@ type UpsertWalletParams struct {
 	AssetType              string
 	TokenMint              string
 	AssociatedTokenAddress *string
-	PollInterval           time.Duration
 	Status                 string
 }
 
@@ -278,7 +258,6 @@ func (s *Store) CreateWallet(ctx context.Context, params CreateWalletParams) (*W
 		AssetType:              params.AssetType,
 		TokenMint:              params.TokenMint,
 		AssociatedTokenAddress: pgtextFromStringPtr(params.AssociatedTokenAddress),
-		PollInterval:           pgIntervalFromDuration(params.PollInterval),
 		Status:                 params.Status,
 	}
 
@@ -299,7 +278,6 @@ func (s *Store) UpsertWallet(ctx context.Context, params UpsertWalletParams) (*W
 		AssetType:              params.AssetType,
 		TokenMint:              params.TokenMint,
 		AssociatedTokenAddress: pgtextFromStringPtr(params.AssociatedTokenAddress),
-		PollInterval:           pgIntervalFromDuration(params.PollInterval),
 		Status:                 params.Status,
 	}
 
@@ -357,24 +335,6 @@ func (s *Store) ListActiveWallets(ctx context.Context) ([]*Wallet, error) {
 	return wallets, nil
 }
 
-// UpdateWalletPollTime updates the last poll time for a wallet+asset.
-func (s *Store) UpdateWalletPollTime(ctx context.Context, address string, network string, assetType string, tokenMint string, pollTime time.Time) (*Wallet, error) {
-	params := dbgen.UpdateWalletPollTimeParams{
-		Address:      address,
-		Network:      network,
-		AssetType:    assetType,
-		TokenMint:    tokenMint,
-		LastPollTime: pgtype.Timestamptz{Time: pollTime, Valid: true},
-	}
-
-	result, err := s.q.UpdateWalletPollTime(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-
-	return dbWalletToDomain(&result), nil
-}
-
 // UpdateWalletStatus updates the status of a wallet+asset.
 func (s *Store) UpdateWalletStatus(ctx context.Context, address string, network string, assetType string, tokenMint string, status string) (*Wallet, error) {
 	params := dbgen.UpdateWalletStatusParams{
@@ -386,24 +346,6 @@ func (s *Store) UpdateWalletStatus(ctx context.Context, address string, network 
 	}
 
 	result, err := s.q.UpdateWalletStatus(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-
-	return dbWalletToDomain(&result), nil
-}
-
-// UpdateWalletPollInterval updates the poll interval for a wallet+asset.
-func (s *Store) UpdateWalletPollInterval(ctx context.Context, address string, network string, assetType string, tokenMint string, pollInterval time.Duration) (*Wallet, error) {
-	params := dbgen.UpdateWalletPollIntervalParams{
-		Address:      address,
-		Network:      network,
-		AssetType:    assetType,
-		TokenMint:    tokenMint,
-		PollInterval: pgIntervalFromDuration(pollInterval),
-	}
-
-	result, err := s.q.UpdateWalletPollInterval(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -506,36 +448,8 @@ func dbWalletToDomain(db *dbgen.Wallet) *Wallet {
 		AssetType:              db.AssetType,
 		TokenMint:              db.TokenMint,
 		AssociatedTokenAddress: stringPtrFromPgtext(db.AssociatedTokenAddress),
-		PollInterval:           durationFromPgInterval(db.PollInterval),
-		LastPollTime:           timePtrFromPgTimestamptz(db.LastPollTime),
 		Status:                 db.Status,
 		CreatedAt:              db.CreatedAt.Time,
 		UpdatedAt:              db.UpdatedAt.Time,
 	}
-}
-
-func timePtrFromPgTimestamptz(t pgtype.Timestamptz) *time.Time {
-	if !t.Valid {
-		return nil
-	}
-	return &t.Time
-}
-
-// pgIntervalFromDuration converts a Go time.Duration to a PostgreSQL interval.
-func pgIntervalFromDuration(d time.Duration) pgtype.Interval {
-	// PostgreSQL interval uses microseconds for precision
-	microseconds := d.Microseconds()
-	return pgtype.Interval{
-		Microseconds: microseconds,
-		Valid:        true,
-	}
-}
-
-// durationFromPgInterval converts a PostgreSQL interval to a Go time.Duration.
-func durationFromPgInterval(i pgtype.Interval) time.Duration {
-	if !i.Valid {
-		return 0
-	}
-	// Convert microseconds back to duration
-	return time.Duration(i.Microseconds) * time.Microsecond
 }

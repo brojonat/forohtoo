@@ -81,14 +81,13 @@ func TestStore_WalletExists_Exists(t *testing.T) {
 	// First, create the wallet
 	store.UpsertWalletFunc = func(ctx context.Context, params UpsertWalletParams) (*Wallet, error) {
 		return &Wallet{
-			Address:      params.Address,
-			Network:      params.Network,
-			AssetType:    params.AssetType,
-			TokenMint:    params.TokenMint,
-			PollInterval: params.PollInterval,
-			Status:       "active",
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
+			Address:   params.Address,
+			Network:   params.Network,
+			AssetType: params.AssetType,
+			TokenMint: params.TokenMint,
+			Status:    "active",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		}, nil
 	}
 
@@ -97,7 +96,6 @@ func TestStore_WalletExists_Exists(t *testing.T) {
 		Network:      network,
 		AssetType:    assetType,
 		TokenMint:    tokenMint,
-		PollInterval: 30 * time.Second,
 		Status:       "active",
 	})
 	require.NoError(t, err)

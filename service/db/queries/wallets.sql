@@ -5,10 +5,9 @@ INSERT INTO wallets (
     asset_type,
     token_mint,
     associated_token_address,
-    poll_interval,
     status
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7
+    $1, $2, $3, $4, $5, $6
 )
 RETURNING *;
 
@@ -19,15 +18,13 @@ INSERT INTO wallets (
     asset_type,
     token_mint,
     associated_token_address,
-    poll_interval,
     status
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7
+    $1, $2, $3, $4, $5, $6
 )
 ON CONFLICT (address, network, asset_type, token_mint)
 DO UPDATE SET
     associated_token_address = EXCLUDED.associated_token_address,
-    poll_interval = EXCLUDED.poll_interval,
     status = EXCLUDED.status,
     updated_at = NOW()
 RETURNING *;
@@ -43,15 +40,7 @@ ORDER BY created_at DESC;
 -- name: ListActiveWallets :many
 SELECT * FROM wallets
 WHERE status = 'active'
-ORDER BY last_poll_time ASC NULLS FIRST;
-
--- name: UpdateWalletPollTime :one
-UPDATE wallets
-SET
-    last_poll_time = $5,
-    updated_at = NOW()
-WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4
-RETURNING *;
+ORDER BY created_at DESC;
 
 -- name: UpdateWalletStatus :one
 UPDATE wallets
@@ -77,11 +66,3 @@ ORDER BY network, asset_type, token_mint;
 SELECT * FROM wallets
 WHERE address = $1 AND network = $2
 ORDER BY asset_type, token_mint;
-
--- name: UpdateWalletPollInterval :one
-UPDATE wallets
-SET
-    poll_interval = $5,
-    updated_at = NOW()
-WHERE address = $1 AND network = $2 AND asset_type = $3 AND token_mint = $4
-RETURNING *;

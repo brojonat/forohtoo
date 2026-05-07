@@ -46,16 +46,16 @@ func TestListWalletsCommand(t *testing.T) {
 
 	// Create test wallets
 	_, err := store.CreateWallet(context.Background(), db.CreateWalletParams{
-		Address:      "TestWa11et11111111111111111111111111111",
-		PollInterval: 30 * time.Second,
-		Status:       "active",
+		Address: "TestWa11et11111111111111111111111111111",
+		Network: "mainnet",
+		Status:  "active",
 	})
 	require.NoError(t, err)
 
 	_, err = store.CreateWallet(context.Background(), db.CreateWalletParams{
-		Address:      "TestWa11et22222222222222222222222222222",
-		PollInterval: 30 * time.Second,
-		Status:       "paused",
+		Address: "TestWa11et22222222222222222222222222222",
+		Network: "mainnet",
+		Status:  "paused",
 	})
 	require.NoError(t, err)
 
@@ -135,9 +135,9 @@ func TestGetWalletCommand(t *testing.T) {
 
 	// Create test wallet
 	wallet, err := store.CreateWallet(context.Background(), db.CreateWalletParams{
-		Address:      "TestWa11et33333333333333333333333333333",
-		PollInterval: 30 * time.Second,
-		Status:       "active",
+		Address: "TestWa11et33333333333333333333333333333",
+		Network: "mainnet",
+		Status:  "active",
 	})
 	require.NoError(t, err)
 
@@ -197,21 +197,24 @@ func TestListTransactionsCommand(t *testing.T) {
 	// Create test wallet
 	walletAddr := "TestWa11et44444444444444444444444444444"
 	_, err := store.CreateWallet(context.Background(), db.CreateWalletParams{
-		Address:      walletAddr,
-		PollInterval: 30 * time.Second,
-		Status:       "active",
+		Address: walletAddr,
+		Network: "mainnet",
+		Status:  "active",
 	})
 	require.NoError(t, err)
 
 	// Create test transactions
 	now := time.Now()
+	sender := "sender1111111111111111111111111111111"
 	for i := 0; i < 3; i++ {
 		_, err := store.CreateTransaction(context.Background(), db.CreateTransactionParams{
 			Signature:          "sig" + string(rune('1'+i)) + "111111111111111111111111111111111111111111",
 			WalletAddress:      walletAddr,
+			Network:            "mainnet",
 			Slot:               int64(1000 + i),
 			BlockTime:          now.Add(time.Duration(i) * time.Minute),
 			Amount:             int64(100 * (i + 1)),
+			FromAddress:        &sender,
 			ConfirmationStatus: "confirmed",
 		})
 		require.NoError(t, err)

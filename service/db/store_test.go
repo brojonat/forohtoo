@@ -149,6 +149,7 @@ func TestListTransactionsByWallet(t *testing.T) {
 
 	// Create multiple transactions for the same wallet
 	wallet := "wallet123"
+	sender := "sender111"
 	for i := 0; i < 5; i++ {
 		params := CreateTransactionParams{
 			Signature:          "sig" + string(rune('A'+i)),
@@ -157,6 +158,7 @@ func TestListTransactionsByWallet(t *testing.T) {
 			Slot:               int64(12345 + i),
 			BlockTime:          now.Add(time.Duration(i) * time.Minute),
 			Amount:             int64(1000000 * (i + 1)),
+			FromAddress:        &sender,
 			ConfirmationStatus: "finalized",
 		}
 		_, err := store.CreateTransaction(ctx, params)
@@ -172,6 +174,7 @@ func TestListTransactionsByWallet(t *testing.T) {
 			Slot:               int64(22345 + i),
 			BlockTime:          now.Add(time.Duration(i) * time.Minute),
 			Amount:             int64(2000000 * (i + 1)),
+			FromAddress:        &sender,
 			ConfirmationStatus: "finalized",
 		}
 		_, err := store.CreateTransaction(ctx, params)
@@ -182,6 +185,7 @@ func TestListTransactionsByWallet(t *testing.T) {
 	t.Run("list with pagination", func(t *testing.T) {
 		params := ListTransactionsByWalletParams{
 			WalletAddress: wallet,
+			Network:       "mainnet",
 			Limit:         3,
 			Offset:        0,
 		}
@@ -199,6 +203,7 @@ func TestListTransactionsByWallet(t *testing.T) {
 	t.Run("list with offset", func(t *testing.T) {
 		params := ListTransactionsByWalletParams{
 			WalletAddress: wallet,
+			Network:       "mainnet",
 			Limit:         2,
 			Offset:        3,
 		}
@@ -214,6 +219,7 @@ func TestListTransactionsByWallet(t *testing.T) {
 	t.Run("list only returns transactions for the specified wallet", func(t *testing.T) {
 		params := ListTransactionsByWalletParams{
 			WalletAddress: wallet,
+			Network:       "mainnet",
 			Limit:         10,
 			Offset:        0,
 		}
@@ -266,6 +272,7 @@ func TestListTransactionsByWalletAndTimeRange(t *testing.T) {
 	t.Run("query within time range", func(t *testing.T) {
 		params := ListTransactionsByWalletAndTimeRangeParams{
 			WalletAddress: wallet,
+			Network:       "mainnet",
 			StartTime:     baseTime.Add(1 * time.Hour),
 			EndTime:       baseTime.Add(3 * time.Hour),
 		}
@@ -408,6 +415,7 @@ func TestDeleteTransactionsOlderThan(t *testing.T) {
 	baseTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	wallet := "walletDelete"
+	from := "someSender"
 
 	// Create old transactions
 	for i := 0; i < 3; i++ {
@@ -418,6 +426,7 @@ func TestDeleteTransactionsOlderThan(t *testing.T) {
 			Slot:               int64(12345 + i),
 			BlockTime:          baseTime.Add(time.Duration(i) * time.Hour),
 			Amount:             1000000,
+			FromAddress:        &from,
 			ConfirmationStatus: "finalized",
 		}
 		_, err := store.CreateTransaction(ctx, params)
@@ -433,6 +442,7 @@ func TestDeleteTransactionsOlderThan(t *testing.T) {
 			Slot:               int64(22345 + i),
 			BlockTime:          baseTime.Add(time.Duration(10+i) * time.Hour),
 			Amount:             1000000,
+			FromAddress:        &from,
 			ConfirmationStatus: "finalized",
 		}
 		_, err := store.CreateTransaction(ctx, params)
@@ -452,6 +462,7 @@ func TestDeleteTransactionsOlderThan(t *testing.T) {
 	// Verify we can still get the newer transactions
 	params := ListTransactionsByWalletParams{
 		WalletAddress: wallet,
+		Network:       "mainnet",
 		Limit:         10,
 		Offset:        0,
 	}

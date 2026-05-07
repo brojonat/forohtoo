@@ -286,12 +286,11 @@ func walletGetCommand() *cli.Command {
 				fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 				fmt.Printf("Address:       %s\n", wallet.Address)
 				fmt.Printf("Network:       %s\n", wallet.Network)
-				fmt.Printf("Status:        %s\n", wallet.Status)
-				if wallet.LastPollTime != nil {
-					fmt.Printf("Last Poll:     %s\n", wallet.LastPollTime.Format(time.RFC3339))
-				} else {
-					fmt.Printf("Last Poll:     (never)\n")
+				fmt.Printf("Asset Type:    %s\n", wallet.AssetType)
+				if wallet.TokenMint != "" {
+					fmt.Printf("Token Mint:    %s\n", wallet.TokenMint)
 				}
+				fmt.Printf("Status:        %s\n", wallet.Status)
 				fmt.Printf("Created At:    %s\n", wallet.CreatedAt.Format(time.RFC3339))
 				fmt.Printf("Updated At:    %s\n", wallet.UpdatedAt.Format(time.RFC3339))
 				fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -351,12 +350,9 @@ func walletListCommand() *cli.Command {
 				for _, w := range wallets {
 					fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 					fmt.Printf("Address:       %s\n", w.Address)
+					fmt.Printf("Network:       %s\n", w.Network)
+					fmt.Printf("Asset Type:    %s\n", w.AssetType)
 					fmt.Printf("Status:        %s\n", w.Status)
-					if w.LastPollTime != nil {
-						fmt.Printf("Last Poll:     %s\n", w.LastPollTime.Format(time.RFC3339))
-					} else {
-						fmt.Printf("Last Poll:     (never)\n")
-					}
 					fmt.Println()
 				}
 				fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

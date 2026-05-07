@@ -1,15 +1,10 @@
 resources:
   - server.yaml
-  - worker.yaml
-  - worker-metrics-service.yaml
   - ingress.yaml
 
 secretGenerator:
   - envs:
       - ../../.env.server.prod
     name: forohtoo-secret-server-envs
-  - envs:
-      - ../../.env.worker.prod
-    name: forohtoo-secret-worker-envs
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization

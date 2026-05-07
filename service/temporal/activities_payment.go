@@ -29,12 +29,11 @@ type AwaitPaymentResult struct {
 
 // RegisterWalletInput contains parameters for registering a wallet.
 type RegisterWalletInput struct {
-	Address                string        `json:"address"`
-	Network                string        `json:"network"`
-	AssetType              string        `json:"asset_type"`
-	TokenMint              string        `json:"token_mint"`
-	AssociatedTokenAddress *string       `json:"associated_token_address"`
-	PollInterval           time.Duration `json:"poll_interval"`
+	Address                string  `json:"address"`
+	Network                string  `json:"network"`
+	AssetType              string  `json:"asset_type"`
+	TokenMint              string  `json:"token_mint"`
+	AssociatedTokenAddress *string `json:"associated_token_address"`
 }
 
 // RegisterWalletResult contains the result of registering a wallet.
@@ -56,8 +55,6 @@ func (a *Activities) AwaitPayment(ctx context.Context, input AwaitPaymentInput) 
 		"memo", input.Memo,
 	)
 
-	// Send heartbeats while waiting (every 30s)
-	// This lets Temporal know the activity is still alive
 	heartbeatCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -74,34 +71,15 @@ func (a *Activities) AwaitPayment(ctx context.Context, input AwaitPaymentInput) 
 		}
 	}()
 
-	// Use forohtoo client to await payment
 	if a.forohtooClient == nil {
 		return nil, fmt.Errorf("forohtoo client not configured in activities")
 	}
 
 	txn, err := a.forohtooClient.Await(ctx, input.PayToAddress, input.Network, input.LookbackPeriod, func(t *client.Transaction) bool {
-		// Match on memo and minimum amount
 		meetsAmount := t.Amount >= input.Amount
 		matchesMemo := t.Memo != nil && *t.Memo == input.Memo
-
-		memoValue := ""
-		if t.Memo != nil {
-			memoValue = *t.Memo
-		}
-
-		a.logger.DebugContext(ctx, "checking transaction",
-			"signature", t.Signature,
-			"amount", t.Amount,
-			"required_amount", input.Amount,
-			"meets_amount", meetsAmount,
-			"memo", memoValue,
-			"required_memo", input.Memo,
-			"matches_memo", matchesMemo,
-		)
-
 		return meetsAmount && matchesMemo
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("payment await failed: %w", err)
 	}
@@ -120,7 +98,8 @@ func (a *Activities) AwaitPayment(ctx context.Context, input AwaitPaymentInput) 
 	}, nil
 }
 
-// RegisterWallet activity registers a wallet asset and creates its Temporal schedule.
+// RegisterWallet activity persists a wallet asset and adds the monitored
+// address to the Helius webhook so its transactions begin streaming.
 func (a *Activities) RegisterWallet(ctx context.Context, input RegisterWalletInput) (*RegisterWalletResult, error) {
 	a.logger.InfoContext(ctx, "registering wallet",
 		"address", input.Address,
@@ -128,45 +107,36 @@ func (a *Activities) RegisterWallet(ctx context.Context, input RegisterWalletInp
 		"asset_type", input.AssetType,
 	)
 
-	// Upsert wallet in database
 	wallet, err := a.store.UpsertWallet(ctx, db.UpsertWalletParams{
 		Address:                input.Address,
 		Network:                input.Network,
 		AssetType:              input.AssetType,
 		TokenMint:              input.TokenMint,
 		AssociatedTokenAddress: input.AssociatedTokenAddress,
-		PollInterval:           input.PollInterval,
 		Status:                 "active",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to upsert wallet: %w", err)
 	}
 
-	// Create Temporal schedule for polling
-	if a.temporalClient == nil {
-		// Rollback wallet creation
-		a.store.DeleteWallet(ctx, input.Address, input.Network, input.AssetType, input.TokenMint)
-		return nil, fmt.Errorf("temporal client not configured in activities")
+	if a.heliusClient == nil {
+		// Roll back the upsert if there's no way to subscribe to the wallet.
+		_ = a.store.DeleteWallet(ctx, input.Address, input.Network, input.AssetType, input.TokenMint)
+		return nil, fmt.Errorf("helius client not configured in activities")
 	}
 
-	err = a.temporalClient.UpsertWalletAssetSchedule(ctx,
-		input.Address,
-		input.Network,
-		input.AssetType,
-		input.TokenMint,
-		input.AssociatedTokenAddress,
-		input.PollInterval,
-	)
-	if err != nil {
-		// Rollback wallet creation
-		deleteErr := a.store.DeleteWallet(ctx, input.Address, input.Network, input.AssetType, input.TokenMint)
-		if deleteErr != nil {
-			a.logger.ErrorContext(ctx, "failed to rollback wallet creation after schedule error",
-				"error", deleteErr,
+	monitorAddr := input.Address
+	if input.AssociatedTokenAddress != nil {
+		monitorAddr = *input.AssociatedTokenAddress
+	}
+	if err := a.heliusClient.AddAddress(ctx, monitorAddr); err != nil {
+		if delErr := a.store.DeleteWallet(ctx, input.Address, input.Network, input.AssetType, input.TokenMint); delErr != nil {
+			a.logger.ErrorContext(ctx, "failed to roll back wallet after Helius error",
+				"error", delErr,
 				"address", input.Address,
 			)
 		}
-		return nil, fmt.Errorf("failed to create schedule: %w", err)
+		return nil, fmt.Errorf("failed to add address to Helius webhook: %w", err)
 	}
 
 	a.logger.InfoContext(ctx, "wallet registered successfully",

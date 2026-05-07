@@ -21,7 +21,7 @@ func main() {
 		Usage: "Solana wallet payment monitoring service CLI",
 		Description: `A command-line tool for managing and debugging the forohtoo service.
 
-Use this CLI to inspect database state, view Temporal schedules, and debug workflows.`,
+Use this CLI to inspect database state and stream transactions.`,
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
 		Commands: []*cli.Command{
 			// Database inspection commands
@@ -32,22 +32,6 @@ Use this CLI to inspect database state, view Temporal schedules, and debug workf
 					listWalletsCommand(),
 					getWalletCommand(),
 					listTransactionsCommand(),
-				},
-			},
-			// Temporal inspection and management commands
-			{
-				Name:  "temporal",
-				Usage: "Temporal inspection and management commands",
-				Subcommands: []*cli.Command{
-					listSchedulesCommand(),
-					describeScheduleCommand(),
-					listWorkflowsCommand(),
-					pauseScheduleCommand(),
-					resumeScheduleCommand(),
-					deleteScheduleCommand(),
-					createScheduleCommand(),
-					recreateScheduleCommand(),
-					reconcileCommand(),
 				},
 			},
 			// NATS transaction streaming commands
@@ -64,6 +48,8 @@ Use this CLI to inspect database state, view Temporal schedules, and debug workf
 			sseCommands(),
 			// Wallet transaction monitoring commands
 			walletCommands(),
+			// Helius webhook management commands
+			heliusCommands(),
 			// Server utility commands
 			{
 				Name:  "server",
@@ -80,18 +66,6 @@ Use this CLI to inspect database state, view Temporal schedules, and debug workf
 				Name:    "database-url",
 				Usage:   "Database connection URL",
 				EnvVars: []string{"DATABASE_URL"},
-			},
-			&cli.StringFlag{
-				Name:    "temporal-host",
-				Usage:   "Temporal server address",
-				EnvVars: []string{"TEMPORAL_HOST"},
-				Value:   "localhost:7233",
-			},
-			&cli.StringFlag{
-				Name:    "temporal-namespace",
-				Usage:   "Temporal namespace",
-				EnvVars: []string{"TEMPORAL_NAMESPACE"},
-				Value:   "default",
 			},
 			&cli.StringFlag{
 				Name:    "server-url",

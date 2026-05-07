@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -12,9 +11,8 @@ import (
 // All required fields are validated at startup to ensure fail-fast behavior.
 type Config struct {
 	// Server configuration
-	ServerAddr        string
-	LogLevel          string
-	ForohtooServerURL string // URL of the forohtoo server for SSE streaming
+	ServerAddr string
+	LogLevel   string
 
 	// Database configuration
 	DatabaseURL string
@@ -22,81 +20,53 @@ type Config struct {
 	// NATS configuration
 	NATSURL string
 
-	// Solana configuration - Mainnet (multiple endpoints for load distribution)
-	SolanaMainnetRPCURLs []string
+	// USDC mint addresses per network (used to compute the ATA we monitor for
+	// payment-gated registrations and to validate registration requests).
 	USDCMainnetMintAddress string
+	USDCDevnetMintAddress  string
 
-	// Solana configuration - Devnet (multiple endpoints for load distribution)
-	SolanaDevnetRPCURLs []string
-	USDCDevnetMintAddress string
-
-	// Temporal configuration
+	// Temporal configuration (only used when payment gateway is enabled)
 	TemporalHost      string
 	TemporalNamespace string
 	TemporalTaskQueue string
 
-	// Polling configuration
-	DefaultPollInterval time.Duration
-	MinPollInterval     time.Duration
+	// Helius webhook configuration (the only ingestion path)
+	HeliusAPIKey           string
+	HeliusWebhookURL       string
+	HeliusWebhookAuthToken string
 
 	// Payment gateway configuration
 	PaymentGateway PaymentGatewayConfig
 }
 
 // PaymentGatewayConfig holds payment gateway settings for wallet registration fees.
-// All payments are in USDC (using the network-appropriate USDC mint address).
 type PaymentGatewayConfig struct {
-	Enabled         bool          `json:"enabled"`           // Enable payment gateway
-	ServiceWallet   string        `json:"service_wallet"`    // Forohtoo's wallet address for receiving USDC payments
-	ServiceNetwork  string        `json:"service_network"`   // "mainnet" or "devnet"
-	FeeAmount       int64         `json:"fee_amount"`        // Registration fee in USDC base units (6 decimals: 1 USDC = 1000000)
-	PaymentTimeout  time.Duration `json:"payment_timeout"`   // How long to wait for payment (default: 24h)
-	MemoPrefix      string        `json:"memo_prefix"`       // Prefix for payment memos (default: "forohtoo-reg:")
+	Enabled        bool          `json:"enabled"`
+	ServiceWallet  string        `json:"service_wallet"`
+	ServiceNetwork string        `json:"service_network"`
+	FeeAmount      int64         `json:"fee_amount"`
+	PaymentTimeout time.Duration `json:"payment_timeout"`
+	MemoPrefix     string        `json:"memo_prefix"`
 }
 
-// Load reads configuration from environment variables and validates all required fields.
-// Returns an error if any required configuration is missing or invalid.
+// Load reads configuration from environment variables and validates required fields.
 func Load() (*Config, error) {
 	cfg := &Config{}
 	var errs []error
 
-	// Server configuration
 	cfg.ServerAddr = getEnvOrDefault("SERVER_ADDR", ":8080")
 	cfg.LogLevel = getEnvOrDefault("LOG_LEVEL", "info")
-	cfg.ForohtooServerURL = getEnvOrDefault("FOROHTOO_SERVER_URL", "http://localhost:8080")
 
-	// Database configuration
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	if cfg.DatabaseURL == "" {
 		errs = append(errs, fmt.Errorf("DATABASE_URL is required"))
 	}
 
-	// NATS configuration
 	cfg.NATSURL = getEnvOrDefault("NATS_URL", "nats://localhost:4222")
-
-	// Solana Mainnet configuration
-	mainnetURLsStr := os.Getenv("SOLANA_MAINNET_RPC_URLS")
-	if mainnetURLsStr == "" {
-		errs = append(errs, fmt.Errorf("SOLANA_MAINNET_RPC_URLS is required"))
-	}
-	cfg.SolanaMainnetRPCURLs = parseEndpoints(mainnetURLsStr)
-	if len(cfg.SolanaMainnetRPCURLs) == 0 {
-		errs = append(errs, fmt.Errorf("SOLANA_MAINNET_RPC_URLS must contain at least one valid endpoint"))
-	}
 
 	cfg.USDCMainnetMintAddress = os.Getenv("USDC_MAINNET_MINT_ADDRESS")
 	if cfg.USDCMainnetMintAddress == "" {
 		errs = append(errs, fmt.Errorf("USDC_MAINNET_MINT_ADDRESS is required"))
-	}
-
-	// Solana Devnet configuration
-	devnetURLsStr := os.Getenv("SOLANA_DEVNET_RPC_URLS")
-	if devnetURLsStr == "" {
-		errs = append(errs, fmt.Errorf("SOLANA_DEVNET_RPC_URLS is required"))
-	}
-	cfg.SolanaDevnetRPCURLs = parseEndpoints(devnetURLsStr)
-	if len(cfg.SolanaDevnetRPCURLs) == 0 {
-		errs = append(errs, fmt.Errorf("SOLANA_DEVNET_RPC_URLS must contain at least one valid endpoint"))
 	}
 
 	cfg.USDCDevnetMintAddress = os.Getenv("USDC_DEVNET_MINT_ADDRESS")
@@ -104,44 +74,32 @@ func Load() (*Config, error) {
 		errs = append(errs, fmt.Errorf("USDC_DEVNET_MINT_ADDRESS is required"))
 	}
 
-	// Validate USDC mint addresses are different
-	if cfg.USDCMainnetMintAddress == cfg.USDCDevnetMintAddress {
+	if cfg.USDCMainnetMintAddress != "" && cfg.USDCMainnetMintAddress == cfg.USDCDevnetMintAddress {
 		errs = append(errs, fmt.Errorf("USDC_MAINNET_MINT_ADDRESS and USDC_DEVNET_MINT_ADDRESS must be different"))
 	}
 
-	// Temporal configuration
+	cfg.HeliusAPIKey = os.Getenv("HELIUS_API_KEY")
+	if cfg.HeliusAPIKey == "" {
+		errs = append(errs, fmt.Errorf("HELIUS_API_KEY is required"))
+	}
+	cfg.HeliusWebhookURL = os.Getenv("HELIUS_WEBHOOK_URL")
+	if cfg.HeliusWebhookURL == "" {
+		errs = append(errs, fmt.Errorf("HELIUS_WEBHOOK_URL is required"))
+	}
+	cfg.HeliusWebhookAuthToken = os.Getenv("HELIUS_WEBHOOK_AUTH_TOKEN")
+	if cfg.HeliusWebhookAuthToken == "" {
+		errs = append(errs, fmt.Errorf("HELIUS_WEBHOOK_AUTH_TOKEN is required"))
+	}
+
 	cfg.TemporalHost = getEnvOrDefault("TEMPORAL_HOST", "localhost:7233")
 	cfg.TemporalNamespace = getEnvOrDefault("TEMPORAL_NAMESPACE", "default")
-	cfg.TemporalTaskQueue = getEnvOrDefault("TEMPORAL_TASK_QUEUE", "forohtoo-wallet-polling")
+	cfg.TemporalTaskQueue = getEnvOrDefault("TEMPORAL_TASK_QUEUE", "forohtoo-payment-gateway")
 
-	// Polling configuration
-	defaultInterval, err := parseDuration("DEFAULT_POLL_INTERVAL", "30s")
-	if err != nil {
-		errs = append(errs, err)
-	} else {
-		cfg.DefaultPollInterval = defaultInterval
-	}
-
-	minInterval, err := parseDuration("MIN_POLL_INTERVAL", "10s")
-	if err != nil {
-		errs = append(errs, err)
-	} else {
-		cfg.MinPollInterval = minInterval
-	}
-
-	// Validate intervals
-	if cfg.MinPollInterval > cfg.DefaultPollInterval {
-		errs = append(errs, fmt.Errorf("MIN_POLL_INTERVAL (%v) cannot be greater than DEFAULT_POLL_INTERVAL (%v)",
-			cfg.MinPollInterval, cfg.DefaultPollInterval))
-	}
-
-	// Payment gateway configuration
 	cfg.PaymentGateway = loadPaymentGatewayConfig()
 	if err := cfg.PaymentGateway.Validate(); err != nil {
 		errs = append(errs, err)
 	}
 
-	// Return all validation errors
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("configuration validation failed: %v", errs)
 	}
@@ -150,7 +108,6 @@ func Load() (*Config, error) {
 }
 
 // MustLoad is like Load but panics if configuration is invalid.
-// Useful for server initialization where misconfiguration should halt startup.
 func MustLoad() *Config {
 	cfg, err := Load()
 	if err != nil {
@@ -159,101 +116,11 @@ func MustLoad() *Config {
 	return cfg
 }
 
-// Validate checks if the configuration is valid.
-// This is useful for testing configuration without loading from env.
-func (c *Config) Validate() error {
-	var errs []error
-
-	if c.DatabaseURL == "" {
-		errs = append(errs, fmt.Errorf("DatabaseURL is required"))
-	}
-
-	if len(c.SolanaMainnetRPCURLs) == 0 {
-		errs = append(errs, fmt.Errorf("SolanaMainnetRPCURLs must contain at least one endpoint"))
-	}
-
-	if len(c.SolanaDevnetRPCURLs) == 0 {
-		errs = append(errs, fmt.Errorf("SolanaDevnetRPCURLs must contain at least one endpoint"))
-	}
-
-	if c.USDCMainnetMintAddress == "" {
-		errs = append(errs, fmt.Errorf("USDCMainnetMintAddress is required"))
-	}
-
-	if c.USDCDevnetMintAddress == "" {
-		errs = append(errs, fmt.Errorf("USDCDevnetMintAddress is required"))
-	}
-
-	if c.TemporalHost == "" {
-		errs = append(errs, fmt.Errorf("TemporalHost is required"))
-	}
-
-	if c.TemporalNamespace == "" {
-		errs = append(errs, fmt.Errorf("TemporalNamespace is required"))
-	}
-
-	if c.TemporalTaskQueue == "" {
-		errs = append(errs, fmt.Errorf("TemporalTaskQueue is required"))
-	}
-
-	if c.MinPollInterval > c.DefaultPollInterval {
-		errs = append(errs, fmt.Errorf("MinPollInterval cannot be greater than DefaultPollInterval"))
-	}
-
-	if c.DefaultPollInterval < time.Second {
-		errs = append(errs, fmt.Errorf("DefaultPollInterval must be at least 1 second"))
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("configuration validation failed: %v", errs)
-	}
-
-	return nil
-}
-
-// getEnvOrDefault returns the environment variable value or a default if not set.
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
 	return defaultValue
-}
-
-// parseDuration parses a duration from an environment variable or uses a default.
-func parseDuration(key, defaultValue string) (time.Duration, error) {
-	value := getEnvOrDefault(key, defaultValue)
-	duration, err := time.ParseDuration(value)
-	if err != nil {
-		return 0, fmt.Errorf("%s: invalid duration %q: %w", key, value, err)
-	}
-	return duration, nil
-}
-
-// parseInt parses an integer from an environment variable or uses a default.
-func parseInt(key string, defaultValue int) (int, error) {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue, nil
-	}
-	result, err := strconv.Atoi(value)
-	if err != nil {
-		return 0, fmt.Errorf("%s: invalid integer %q: %w", key, value, err)
-	}
-	return result, nil
-}
-
-// parseEndpoints splits a comma-separated string of RPC endpoints and trims whitespace.
-// Empty strings after trimming are filtered out.
-func parseEndpoints(endpointsStr string) []string {
-	raw := strings.Split(endpointsStr, ",")
-	endpoints := make([]string, 0, len(raw))
-	for _, ep := range raw {
-		trimmed := strings.TrimSpace(ep)
-		if trimmed != "" {
-			endpoints = append(endpoints, trimmed)
-		}
-	}
-	return endpoints
 }
 
 // GetSupportedMints returns the list of supported SPL token mint addresses for a given network.
@@ -305,10 +172,8 @@ func (p *PaymentGatewayConfig) LoadDefaults() {
 
 // LoadFromEnv loads payment gateway configuration from environment variables.
 func (p *PaymentGatewayConfig) LoadFromEnv() error {
-	// Load defaults first
 	p.LoadDefaults()
 
-	// Override with environment variables
 	if os.Getenv("PAYMENT_GATEWAY_ENABLED") == "true" {
 		p.Enabled = true
 	}
@@ -319,7 +184,6 @@ func (p *PaymentGatewayConfig) LoadFromEnv() error {
 		p.ServiceNetwork = network
 	}
 
-	// Parse FeeAmount (in USDC base units: 1 USDC = 1000000)
 	if feeAmountStr := os.Getenv("PAYMENT_GATEWAY_FEE_AMOUNT"); feeAmountStr != "" {
 		parsed, err := strconv.ParseInt(feeAmountStr, 10, 64)
 		if err != nil {
@@ -328,7 +192,6 @@ func (p *PaymentGatewayConfig) LoadFromEnv() error {
 		p.FeeAmount = parsed
 	}
 
-	// Parse PaymentTimeout
 	if timeoutStr := os.Getenv("PAYMENT_GATEWAY_PAYMENT_TIMEOUT"); timeoutStr != "" {
 		parsed, err := time.ParseDuration(timeoutStr)
 		if err != nil {
@@ -337,7 +200,6 @@ func (p *PaymentGatewayConfig) LoadFromEnv() error {
 		p.PaymentTimeout = parsed
 	}
 
-	// Memo prefix
 	if prefix := os.Getenv("PAYMENT_GATEWAY_MEMO_PREFIX"); prefix != "" {
 		p.MemoPrefix = prefix
 	}
@@ -345,48 +207,35 @@ func (p *PaymentGatewayConfig) LoadFromEnv() error {
 	return nil
 }
 
-// loadPaymentGatewayConfig loads payment gateway configuration from environment variables.
 func loadPaymentGatewayConfig() PaymentGatewayConfig {
 	var cfg PaymentGatewayConfig
-	cfg.LoadFromEnv() // Ignore error here, validation happens separately
+	_ = cfg.LoadFromEnv()
 	return cfg
 }
 
 // Validate checks if the PaymentGatewayConfig is valid.
 func (p *PaymentGatewayConfig) Validate() error {
 	if !p.Enabled {
-		// If disabled, no validation needed
 		return nil
 	}
 
 	var errs []error
 
-	// ServiceWallet is required when enabled
 	if p.ServiceWallet == "" {
 		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_SERVICE_WALLET is required when payment gateway is enabled"))
 	}
-
-	// ServiceWallet must be valid Solana address (32-44 characters, base58)
 	if p.ServiceWallet != "" && (len(p.ServiceWallet) < 32 || len(p.ServiceWallet) > 44) {
 		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_SERVICE_WALLET must be a valid Solana address (32-44 characters)"))
 	}
-
-	// ServiceNetwork must be mainnet or devnet
 	if p.ServiceNetwork != "mainnet" && p.ServiceNetwork != "devnet" {
 		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_SERVICE_NETWORK must be 'mainnet' or 'devnet'"))
 	}
-
-	// FeeAmount must be positive
 	if p.FeeAmount <= 0 {
 		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_FEE_AMOUNT must be positive"))
 	}
-
-	// PaymentTimeout must be positive
 	if p.PaymentTimeout <= 0 {
 		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_PAYMENT_TIMEOUT must be positive"))
 	}
-
-	// MemoPrefix should not be empty
 	if p.MemoPrefix == "" {
 		errs = append(errs, fmt.Errorf("PAYMENT_GATEWAY_MEMO_PREFIX should not be empty"))
 	}

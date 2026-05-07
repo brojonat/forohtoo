@@ -83,24 +83,20 @@ func TestUnregister_NotFound(t *testing.T) {
 
 func TestGet_Success(t *testing.T) {
 	now := time.Now()
-	lastPoll := now.Add(-5 * time.Minute)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "GET", r.Method)
 		assert.Equal(t, "/api/v1/wallet-assets/wallet123", r.URL.Path)
 		assert.Equal(t, "mainnet", r.URL.Query().Get("network"))
 
-		// Return response in server format
 		response := map[string]interface{}{
-			"address":        "wallet123",
-			"network":        "mainnet",
-			"asset_type":     "sol",
-			"token_mint":     "",
-			"poll_interval":  "30s",
-			"last_poll_time": lastPoll,
-			"status":         "active",
-			"created_at":     now.Add(-1 * time.Hour),
-			"updated_at":     now,
+			"address":    "wallet123",
+			"network":    "mainnet",
+			"asset_type": "sol",
+			"token_mint": "",
+			"status":     "active",
+			"created_at": now.Add(-1 * time.Hour),
+			"updated_at": now,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -117,8 +113,6 @@ func TestGet_Success(t *testing.T) {
 	assert.Equal(t, "wallet123", wallet.Address)
 	assert.Equal(t, "mainnet", wallet.Network)
 	assert.Equal(t, "active", wallet.Status)
-	assert.Equal(t, 30*time.Second, wallet.PollInterval)
-	assert.NotNil(t, wallet.LastPollTime)
 }
 
 func TestGet_NotFound(t *testing.T) {
@@ -153,7 +147,6 @@ func TestList_Success(t *testing.T) {
 					"network":       "mainnet",
 					"asset_type":    "sol",
 					"token_mint":    "",
-					"poll_interval": "30s",
 					"status":        "active",
 					"created_at":    now,
 					"updated_at":    now,
@@ -163,7 +156,6 @@ func TestList_Success(t *testing.T) {
 					"network":       "mainnet",
 					"asset_type":    "sol",
 					"token_mint":    "",
-					"poll_interval": "30s",
 					"status":        "active",
 					"created_at":    now,
 					"updated_at":    now,

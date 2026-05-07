@@ -9,7 +9,9 @@ import (
 
 	"github.com/brojonat/forohtoo/service/config"
 	"github.com/brojonat/forohtoo/service/db"
+	"github.com/brojonat/forohtoo/service/helius"
 	"github.com/brojonat/forohtoo/service/metrics"
+	natspkg "github.com/brojonat/forohtoo/service/nats"
 	"github.com/brojonat/forohtoo/service/temporal"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -19,7 +21,9 @@ type Server struct {
 	addr           string
 	cfg            *config.Config
 	store          *db.Store
-	temporalClient *temporal.Client
+	temporalClient *temporal.Client   // only used for payment gateway workflows
+	heliusClient   *helius.Client     // manages Helius webhook address list
+	natsPublisher  natspkg.Publisher   // publishes webhook-received transactions to NATS
 	ssePublisher   *SSEPublisher
 	renderer       *TemplateRenderer
 	metrics        *metrics.Metrics
@@ -28,16 +32,18 @@ type Server struct {
 }
 
 // New creates a new HTTP server with the given dependencies.
-// The temporalClient is used for managing Temporal schedules, starting workflows, and querying workflow status.
+// The temporalClient is only used for payment gateway workflows (optional).
+// The heliusClient manages webhook address lists for transaction monitoring.
+// The natsPublisher is used by the webhook handler to publish events.
 // The ssePublisher is optional - if nil, SSE endpoints won't be available.
-// The renderer is optional - if nil, HTML endpoints won't be available.
-// The metrics is optional - if nil, metrics endpoints won't be available.
-func New(addr string, cfg *config.Config, store *db.Store, temporalClient *temporal.Client, ssePublisher *SSEPublisher, m *metrics.Metrics, logger *slog.Logger) *Server {
+func New(addr string, cfg *config.Config, store *db.Store, temporalClient *temporal.Client, heliusClient *helius.Client, natsPublisher natspkg.Publisher, ssePublisher *SSEPublisher, m *metrics.Metrics, logger *slog.Logger) *Server {
 	return &Server{
 		addr:           addr,
 		cfg:            cfg,
 		store:          store,
 		temporalClient: temporalClient,
+		heliusClient:   heliusClient,
+		natsPublisher:  natsPublisher,
 		ssePublisher:   ssePublisher,
 		metrics:        m,
 		logger:         logger,
@@ -65,22 +71,25 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
 	// Wallet asset routes
-	mux.Handle("POST /api/v1/wallet-assets", handleRegisterWalletAsset(s.store, s.temporalClient, s.cfg, s.logger))
-	mux.Handle("DELETE /api/v1/wallet-assets/{address}", handleUnregisterWalletAsset(s.store, s.temporalClient, s.logger))
+	mux.Handle("POST /api/v1/wallet-assets", handleRegisterWalletAsset(s.store, s.heliusClient, s.temporalClient, s.cfg, s.logger))
+	mux.Handle("DELETE /api/v1/wallet-assets/{address}", handleUnregisterWalletAsset(s.store, s.heliusClient, s.logger))
 	mux.Handle("GET /api/v1/wallet-assets/{address}", handleGetWalletAsset(s.store, s.logger))
 	mux.Handle("GET /api/v1/wallet-assets", handleListWalletAssets(s.store, s.logger))
 	mux.Handle("GET /api/v1/transactions", handleListTransactions(s.store, s.logger))
 
-	// Payment gateway routes
-	mux.Handle("GET /api/v1/registration-status/{workflow_id}", handleGetRegistrationStatus(s.temporalClient, s.logger))
+	// Helius webhook endpoint (receives push notifications from Helius)
+	mux.Handle("POST /api/v1/webhooks/helius", handleHeliusWebhook(s.store, s.natsPublisher, s.cfg.HeliusWebhookAuthToken, s.logger))
+
+	// Payment gateway routes (uses Temporal for workflow orchestration)
+	if s.temporalClient != nil {
+		mux.Handle("GET /api/v1/registration-status/{workflow_id}", handleGetRegistrationStatus(s.temporalClient, s.logger))
+	}
 
 	// SSE streaming endpoints (if SSE publisher is configured)
 	if s.ssePublisher != nil {
 		mux.Handle("GET /api/v1/stream/transactions/{address}", handleStreamTransactions(s.ssePublisher, s.logger))
 		mux.Handle("GET /api/v1/stream/transactions", handleStreamTransactions(s.ssePublisher, s.logger))
 		s.logger.Info("SSE streaming endpoints enabled")
-	} else {
-		s.logger.Warn("SSE publisher not configured, streaming endpoints disabled")
 	}
 
 	// HTML pages (if template renderer is configured)
@@ -89,7 +98,6 @@ func (s *Server) Start() error {
 		mux.HandleFunc("GET /stream", handleSSEClientPage(s.renderer))
 		mux.HandleFunc("GET /favicon.ico", handleFavicon())
 		mux.HandleFunc("GET /favicon.svg", handleFavicon())
-		s.logger.Info("HTML page endpoints enabled")
 	}
 
 	// Health check endpoint
@@ -98,13 +106,11 @@ func (s *Server) Start() error {
 		w.Write([]byte("OK"))
 	})
 
-	// Prometheus metrics endpoint (if metrics collector is configured)
+	// Prometheus metrics endpoint
 	if s.metrics != nil {
 		mux.Handle("GET /metrics", promhttp.Handler())
-		s.logger.Info("Prometheus metrics endpoint enabled")
 	}
 
-	// Wrap mux with CORS middleware
 	handler := corsMiddleware(mux)
 
 	s.server = &http.Server{
@@ -124,17 +130,14 @@ func (s *Server) Start() error {
 }
 
 // ensureServiceWalletRegistered ensures the service wallet is registered for monitoring
-// when the payment gateway is enabled. This allows the server to receive payment notifications.
+// when the payment gateway is enabled.
 func (s *Server) ensureServiceWalletRegistered(ctx context.Context) error {
 	if !s.cfg.PaymentGateway.Enabled {
-		s.logger.Debug("payment gateway disabled, skipping service wallet registration")
 		return nil
 	}
 
 	serviceWallet := s.cfg.PaymentGateway.ServiceWallet
 	serviceNetwork := s.cfg.PaymentGateway.ServiceNetwork
-
-	// Service wallet always monitors USDC payments
 	assetType := "spl-token"
 	var tokenMint string
 	if serviceNetwork == "mainnet" {
@@ -143,82 +146,54 @@ func (s *Server) ensureServiceWalletRegistered(ctx context.Context) error {
 		tokenMint = s.cfg.USDCDevnetMintAddress
 	}
 
-	// Check if service wallet is already registered
 	exists, err := s.store.WalletExists(ctx, serviceWallet, serviceNetwork, assetType, tokenMint)
 	if err != nil {
 		return fmt.Errorf("failed to check service wallet existence: %w", err)
 	}
-
 	if exists {
-		s.logger.Info("service wallet already registered",
-			"address", serviceWallet,
-			"network", serviceNetwork,
-			"asset_type", assetType,
-		)
 		return nil
 	}
 
-	// Register service wallet
 	s.logger.Info("registering service wallet for USDC payment monitoring",
 		"address", serviceWallet,
 		"network", serviceNetwork,
-		"usdc_mint", tokenMint,
 	)
 
-	// Compute ATA for USDC
 	ataAddr, err := computeAssociatedTokenAddress(serviceWallet, tokenMint)
 	if err != nil {
 		return fmt.Errorf("failed to compute service wallet ATA: %w", err)
 	}
 	ata := &ataAddr
 
-	// Use a reasonable poll interval for service wallet (1m default)
-	pollInterval := s.cfg.DefaultPollInterval
-	if pollInterval == 0 {
-		pollInterval = 1 * time.Minute
-	}
-
-	// Create wallet in database
-	wallet, err := s.store.UpsertWallet(ctx, db.UpsertWalletParams{
+	_, err = s.store.UpsertWallet(ctx, db.UpsertWalletParams{
 		Address:                serviceWallet,
 		Network:                serviceNetwork,
 		AssetType:              assetType,
 		TokenMint:              tokenMint,
 		AssociatedTokenAddress: ata,
-		PollInterval:           pollInterval,
 		Status:                 "active",
 	})
 	if err != nil {
 		return fmt.Errorf("failed to register service wallet: %w", err)
 	}
 
-	// Create Temporal schedule
-	if err := s.temporalClient.UpsertWalletAssetSchedule(ctx, serviceWallet, serviceNetwork, assetType, tokenMint, ata, pollInterval); err != nil {
-		// Rollback wallet creation
-		s.store.DeleteWallet(ctx, serviceWallet, serviceNetwork, assetType, tokenMint)
-		return fmt.Errorf("failed to create schedule for service wallet: %w", err)
+	// Add the ATA to the Helius webhook
+	if s.heliusClient != nil {
+		if err := s.heliusClient.AddAddress(ctx, *ata); err != nil {
+			s.store.DeleteWallet(ctx, serviceWallet, serviceNetwork, assetType, tokenMint)
+			return fmt.Errorf("failed to add service wallet to Helius webhook: %w", err)
+		}
 	}
 
-	s.logger.Info("service wallet registered successfully",
-		"address", wallet.Address,
-		"network", serviceNetwork,
-		"asset_type", assetType,
-		"poll_interval", wallet.PollInterval,
-	)
-
+	s.logger.Info("service wallet registered", "address", serviceWallet, "network", serviceNetwork)
 	return nil
 }
 
 // Shutdown gracefully shuts down the HTTP server.
 func (s *Server) Shutdown(ctx context.Context) error {
-	s.logger.Info("shutting down HTTP server")
-
-	// Close SSE publisher first (disconnects all clients)
 	if s.ssePublisher != nil {
 		s.ssePublisher.Close()
 	}
-
-	// Then shutdown HTTP server
 	if s.server != nil {
 		return s.server.Shutdown(ctx)
 	}
@@ -228,19 +203,16 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // corsMiddleware adds CORS headers to all responses and handles OPTIONS preflight requests.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Set CORS headers for all requests
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Max-Age", "3600")
 
-		// Handle preflight OPTIONS requests
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 
-		// Pass through to next handler
 		next.ServeHTTP(w, r)
 	})
 }
