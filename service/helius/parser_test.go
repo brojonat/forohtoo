@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/mr-tron/base58"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -174,7 +175,7 @@ func TestParseEnhancedTransactions_WithMemo(t *testing.T) {
 			Instructions: []InstructionGroup{
 				{
 					ProgramID: "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
-					Data:      "hello world payment",
+					Data:      encodeMemo("hello world payment"),
 				},
 			},
 		},
@@ -289,7 +290,7 @@ func TestExtractMemo_SPLMemoProgram(t *testing.T) {
 	txn := EnhancedTransaction{
 		Instructions: []InstructionGroup{
 			{ProgramID: "11111111111111111111111111111112", Data: "transfer"},
-			{ProgramID: "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", Data: "my memo"},
+			{ProgramID: "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", Data: encodeMemo("my memo")},
 		},
 	}
 	memo := extractMemo(txn)
@@ -300,7 +301,7 @@ func TestExtractMemo_SPLMemoProgram(t *testing.T) {
 func TestExtractMemo_LegacyMemoProgram(t *testing.T) {
 	txn := EnhancedTransaction{
 		Instructions: []InstructionGroup{
-			{ProgramID: "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo", Data: "legacy memo"},
+			{ProgramID: "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo", Data: encodeMemo("legacy memo")},
 		},
 	}
 	memo := extractMemo(txn)
@@ -314,7 +315,7 @@ func TestExtractMemo_InnerInstruction(t *testing.T) {
 			{
 				ProgramID: "SomeProgram",
 				InnerInstructions: []InstructionGroup{
-					{ProgramID: "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", Data: "inner memo"},
+					{ProgramID: "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", Data: encodeMemo("inner memo")},
 				},
 			},
 		},
@@ -331,6 +332,28 @@ func TestExtractMemo_NoMemo(t *testing.T) {
 		},
 	}
 	assert.Nil(t, extractMemo(txn))
+}
+
+// Regression test for a real Phantom-paid Solana Pay transaction whose memo
+// arrived from Helius as base58-encoded bytes; the prior implementation
+// stored those bytes verbatim and downstream matchers couldn't find the
+// expected workflow ID.
+func TestExtractMemo_DecodesBase58FromHelius(t *testing.T) {
+	want := "dms foobar@gmail.com Test-2026-05-07T23:56:11Z"
+	txn := EnhancedTransaction{
+		Instructions: []InstructionGroup{
+			{ProgramID: "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", Data: encodeMemo(want)},
+		},
+	}
+	memo := extractMemo(txn)
+	require.NotNil(t, memo)
+	assert.Equal(t, want, *memo)
+}
+
+// encodeMemo helper returns the base58 encoding of memo as it would appear in
+// the Data field of a Helius enhanced transaction's memo program instruction.
+func encodeMemo(memo string) string {
+	return base58.Encode([]byte(memo))
 }
 
 func TestParseEnhancedTransactions_SOLAssetIgnoresTokenTransfer(t *testing.T) {

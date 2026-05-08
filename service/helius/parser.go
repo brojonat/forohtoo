@@ -7,8 +7,10 @@ import (
 	"math"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/brojonat/forohtoo/service/db"
+	"github.com/mr-tron/base58"
 )
 
 // WalletLookup maps poll addresses (wallet address for SOL, ATA for SPL tokens)
@@ -150,7 +152,9 @@ func parseOneTransaction(
 }
 
 // extractMemo looks for memo data in the Helius enhanced transaction.
-// Helius includes memo program data in the instructions list.
+// Helius includes memo program data in the instructions list. The instruction
+// data is base58-encoded raw bytes; the memo program's payload is just the
+// UTF-8 memo text, so we decode it before returning.
 func extractMemo(txn EnhancedTransaction) *string {
 	memoPrograms := map[string]bool{
 		"MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr": true,
@@ -159,21 +163,35 @@ func extractMemo(txn EnhancedTransaction) *string {
 
 	for _, ix := range txn.Instructions {
 		if memoPrograms[ix.ProgramID] {
-			if ix.Data != "" {
-				memo := ix.Data
+			if memo, ok := decodeMemoData(ix.Data); ok {
 				return &memo
 			}
 		}
-		// Check inner instructions too
 		for _, inner := range ix.InnerInstructions {
-			if memoPrograms[inner.ProgramID] && inner.Data != "" {
-				memo := inner.Data
-				return &memo
+			if memoPrograms[inner.ProgramID] {
+				if memo, ok := decodeMemoData(inner.Data); ok {
+					return &memo
+				}
 			}
 		}
 	}
 
 	return nil
+}
+
+// decodeMemoData base58-decodes a memo program instruction data string and
+// returns its UTF-8 contents. Returns ok=false when the input is empty,
+// undecodable, or doesn't decode to valid UTF-8 (in which case we'd rather
+// drop the memo than store garbage that no client can match against).
+func decodeMemoData(data string) (string, bool) {
+	if data == "" {
+		return "", false
+	}
+	raw, err := base58.Decode(data)
+	if err != nil || !utf8.Valid(raw) {
+		return "", false
+	}
+	return string(raw), true
 }
 
 // tokenAmountToRaw converts a float token amount to raw integer amount.

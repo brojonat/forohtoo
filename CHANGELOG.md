@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wallet on Helius API failure.
 
 ### Fixed
+- Memo parser stored the base58-encoded instruction data verbatim instead of
+  decoding it. As a result, on-chain memos delivered through Helius (e.g.
+  Solana Pay payments paid through Phantom) round-tripped as garbled base58
+  strings, breaking any downstream client matching on memo content. Now
+  base58-decoded into UTF-8 before storage; non-UTF-8 payloads are dropped
+  rather than stored.
 - Helius API base URL was set to a non-resolving hostname (`api.helius.dev`),
   which would have crashed the server at startup on `EnsureWebhooks`. Switched
   to the canonical `api-mainnet.helius-rpc.com` per Helius's current docs.
